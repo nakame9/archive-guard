@@ -45,10 +45,13 @@ Tùy chọn thêm:
   `C:\Program Files\7-Zip` vào PATH; Ubuntu: `sudo apt install unrar`). Không có thì vẫn kiểm tra được tên file trong RAR.
 - **ClamAV**: Ubuntu `sudo apt install clamav && sudo freshclam`; Windows tải tại clamav.net.
 
-### Tải mã băm mã độc từ MalwareBazaar (nên làm)
+### Mã băm mã độc từ MalwareBazaar
 
-Mặc định repo chỉ có mã băm của file thử EICAR. Để nhận diện mẫu mã độc thật, tải danh sách mã băm từ
-[MalwareBazaar](https://bazaar.abuse.ch/) của abuse.ch:
+Repo kèm sẵn `archive_guard/data/malwarebazaar.txt`, được workflow GitHub Actions `update-hashes` tự tải từ
+[MalwareBazaar](https://bazaar.abuse.ch/) và commit **mỗi thứ Hai**. Chỉ cần `git pull` là có danh sách mới.
+Nếu bạn fork repo, thêm secret `ABUSECH_AUTH_KEY` (Settings → Secrets and variables → Actions) để workflow chạy.
+
+Muốn cập nhật ngay trên máy mình (lưu vào cache riêng, gộp chung khi quét):
 
 1. Đăng ký **Auth-Key miễn phí** tại https://auth.abuse.ch/ (API miễn phí nhưng bắt buộc có key).
 2. Chạy:
@@ -166,7 +169,8 @@ archive_guard/
 ├── engines.py      # YARA và ClamAV (tùy chọn)
 ├── malwarebazaar.py  # tải mã băm theo họ mã độc từ MalwareBazaar vào cache
 └── data/
-    ├── known_bad.txt   # mã băm mặc định (EICAR)
+    ├── known_bad.txt       # mã băm mặc định (EICAR)
+    ├── malwarebazaar.txt   # mã băm theo họ, GitHub Actions cập nhật hằng tuần
     └── rules/*.yar     # luật YARA đi kèm
 tests/test_scanner.py   # test – mọi mẫu thử được tạo trong bộ nhớ
 ```

@@ -1,0 +1,31 @@
+name: update-hashes
+
+# Tải mã băm mã độc mới từ MalwareBazaar và commit vào archive_guard/data/malwarebazaar.txt.
+# Cần secret ABUSECH_AUTH_KEY: Settings → Secrets and variables → Actions → New repository secret.
+on:
+  schedule:
+    - cron: "17 1 * * 1"  # thứ Hai hằng tuần, 08:17 giờ Việt Nam (recent_detections phủ đúng 7 ngày)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e .
+      - name: Tải mã băm (gộp vào danh sách cũ)
+        env:
+          ABUSECH_AUTH_KEY: ${{ secrets.ABUSECH_AUTH_KEY }}
+        run: python -c "import os; from archive_guard import malwarebazaar as mb; mb.update(os.environ['ABUSECH_AUTH_KEY'], 'archive_guard/data/malwarebazaar.txt')"
+      - name: Commit nếu có thay đổi
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archive_guard/data/malwarebazaar.txt
+          git diff --cached --quiet || { git commit -m "Cập nhật mã băm MalwareBazaar"; git push; }
