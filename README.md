@@ -24,7 +24,7 @@ hay mở bất cứ thứ gì bên trong.
 | Tên file | đuôi kép `hoadon.pdf.exe`, ký tự đảo chiều Unicode (RLO), chèn khoảng trắng giấu đuôi, `.scr/.hta/.lnk/.iso…`, `autorun.inf`, Zip Slip, symlink nguy hiểm |
 | Nội dung | file `.exe` đội lốt `.pdf/.jpg`, macro VBA trong tài liệu Office |
 | Hành vi (chuỗi ASCII + UTF-16) | keylogger (hook bàn phím, nhãn `[BACKSPACE]`…), tiêm mã tiến trình, tự khởi động, tải & chạy mã (PowerShell/VBS dropper), tắt Defender/AMSI, chống máy ảo, xóa shadow copy & thư đòi tiền chuộc (ransomware), đánh cắp mật khẩu trình duyệt/ví tiền ảo, gửi dữ liệu qua Telegram/Discord, reverse shell, lây lan qua USB/mạng (worm) |
-| Mã băm | so với danh sách MD5/SHA1/SHA256 mã độc đã biết (mở rộng bằng `--hashes`) |
+| Mã băm | so với mã băm mẫu mã độc thật từ MalwareBazaar, phân theo họ (`--update-hashes`), và danh sách riêng của bạn (`--hashes`) |
 | YARA *(tùy chọn)* | luật đi kèm + luật của bạn (`--yara`) |
 | ClamAV *(tùy chọn)* | nếu máy có `clamscan`/`clamdscan`, tự động dùng thêm engine chữ ký của ClamAV |
 
@@ -44,6 +44,42 @@ Tùy chọn thêm:
 - **Đọc nội dung RAR**: cần `unrar` hoặc `7z` trong PATH (Windows: cài 7-Zip rồi thêm
   `C:\Program Files\7-Zip` vào PATH; Ubuntu: `sudo apt install unrar`). Không có thì vẫn kiểm tra được tên file trong RAR.
 - **ClamAV**: Ubuntu `sudo apt install clamav && sudo freshclam`; Windows tải tại clamav.net.
+
+### Tải mã băm mã độc từ MalwareBazaar (nên làm)
+
+Mặc định repo chỉ có mã băm của file thử EICAR. Để nhận diện mẫu mã độc thật, tải danh sách mã băm từ
+[MalwareBazaar](https://bazaar.abuse.ch/) của abuse.ch:
+
+1. Đăng ký **Auth-Key miễn phí** tại https://auth.abuse.ch/ (API miễn phí nhưng bắt buộc có key).
+2. Chạy:
+
+```bash
+# Linux/macOS
+export ABUSECH_AUTH_KEY=khoa_cua_ban
+# Windows PowerShell
+$env:ABUSECH_AUTH_KEY = "khoa_cua_ban"
+
+archiveguard --update-hashes                  # chỉ cập nhật
+archiveguard --update-hashes Downloads/       # cập nhật rồi quét luôn
+```
+
+Mỗi lần cập nhật tải mẫu đã gắn họ trong **7 ngày gần nhất**, cộng tối đa **1000 mẫu mới nhất cho mỗi họ**
+phổ biến, chia theo nhóm hành vi:
+
+| Nhóm | Họ mã độc |
+|---|---|
+| Keylogger | AgentTesla, SnakeKeylogger, Formbook |
+| Stealer | LummaStealer, RedLineStealer, Vidar, Stealc |
+| Backdoor / RAT | RemcosRAT, AsyncRAT, XWorm, njrat, QuasarRAT, NanoCore, DCRat |
+| Downloader | GuLoader, SmokeLoader, Amadey |
+| Ransomware | LockBit |
+| Worm | Phorpiex, Mirai |
+
+Mã băm được **gộp** vào cache trên máy (không xóa mã cũ), nên chạy định kỳ thì danh sách ngày càng dày:
+`~/.cache/archive-guard/malwarebazaar.txt` (Windows: `%LOCALAPPDATA%\archive-guard\malwarebazaar.txt`).
+Khi quét trúng, báo cáo ghi rõ họ mã độc, ví dụ `Trùng mã băm với mẫu mã độc đã biết: AgentTesla` và xếp
+vào nhóm Keylogger. Sửa danh sách họ trong `FAMILIES` ở `archive_guard/malwarebazaar.py`. Chỉ mã băm được tải
+về, không có mẫu mã độc nào.
 
 ## Sử dụng
 
@@ -114,8 +150,8 @@ rule My_Keylogger {
 Bộ luật cộng đồng nên thử: [Yara-Rules/rules](https://github.com/Yara-Rules/rules),
 [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base).
 
-**Thêm mã băm mã độc** – tạo file text mỗi dòng một mã MD5/SHA1/SHA256 (dòng `#` là chú thích), rồi chạy
-`--hashes file.txt`. Có thể dùng danh sách export từ [MalwareBazaar](https://bazaar.abuse.ch/).
+**Thêm mã băm của riêng bạn** – tạo file text, mỗi dòng `mã_băm [tên_họ]` (MD5/SHA1/SHA256, dòng `#` là
+chú thích), rồi chạy `--hashes file.txt`.
 
 **Thêm chỉ dấu hành vi** – sửa danh sách `_INDICATORS` trong `archive_guard/rules.py`.
 
@@ -128,8 +164,9 @@ archive_guard/
 ├── extract.py      # đọc ZIP/RAR/7z/TAR/GZ trong bộ nhớ, giới hạn chống zip bomb
 ├── rules.py        # luật tên file, loại file, chỉ dấu hành vi, danh sách mã băm
 ├── engines.py      # YARA và ClamAV (tùy chọn)
+├── malwarebazaar.py  # tải mã băm theo họ mã độc từ MalwareBazaar vào cache
 └── data/
-    ├── known_bad.txt   # mã băm mã độc đã biết
+    ├── known_bad.txt   # mã băm mặc định (EICAR)
     └── rules/*.yar     # luật YARA đi kèm
 tests/test_scanner.py   # test – mọi mẫu thử được tạo trong bộ nhớ
 ```
@@ -150,6 +187,8 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
   (vd. `pywin32`, `pynput`) dùng chính các hàm mà keylogger/trojan dùng và sẽ bị đánh dấu ĐÁNG NGỜ.
 - **Có thể bỏ sót** mã độc bị nén/mã hóa bằng packer (UPX, Themida…) vì chuỗi bị giấu đi. Bật ClamAV/YARA để tăng độ phủ.
 - Chỉ dò chuỗi trong 32 MB đầu + 4 MB cuối của mỗi file để giữ tốc độ.
+- Mã băm chỉ bắt được **đúng** mẫu đã có trên MalwareBazaar: đổi một byte là mã băm khác. Đây là lớp bổ sung
+  cho heuristic, không thay thế nó.
 - Quét chính repo này sẽ ra NGUY HIỂM, vì `rules.py` và file test chứa đúng các chuỗi cần dò (chuyện thường gặp với mọi bộ luật antivirus).
 - Chưa phân tích sâu PDF và macro Office (chỉ phát hiện có macro), chưa mở RAR mã hóa cả tên file.
 

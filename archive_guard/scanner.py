@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import engines, rules
+from . import engines, malwarebazaar, rules
 from .extract import ARCHIVE_KINDS, ArchiveError, EncryptedArchive, archive_kind, iter_members
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
@@ -93,13 +94,17 @@ class Scanner:
         self.max_total = max_total_mb * MB
         self.max_files = max_files
         self.max_ratio = max_ratio
-        self.hashes = rules.load_hashes([DATA_DIR / "known_bad.txt", *hash_files])
+        cache = malwarebazaar.cache_path()
+        hash_status = (f"cache MalwareBazaar {time.strftime('%Y-%m-%d', time.localtime(cache.stat().st_mtime))}"
+                       if cache.exists() else "chạy --update-hashes để tải thêm từ MalwareBazaar")
+        self.hashes = rules.load_hashes([DATA_DIR / "known_bad.txt", *([cache] if cache.exists() else []),
+                                         *hash_files])
         self.yara, yara_status = (engines.load_yara([DATA_DIR / "rules", *yara_paths])
                                   if use_yara else ([], "tắt"))
         self.use_clamav = use_clamav and engines.find_clamav() is not None
         self.engines = {
             "heuristic": "bật",
-            "hash": f"{len(self.hashes)} mã băm",
+            "hash": f"{len(self.hashes)} mã băm ({hash_status})",
             "yara": yara_status,
             "clamav": "bật" if self.use_clamav else ("tắt" if not use_clamav else "chưa cài"),
         }
@@ -141,9 +146,12 @@ class Scanner:
         res = FileResult(display, kind, size, digests["sha256"])
         report.files.append(res)
         res.findings += rules.check_name(name, in_archive=depth > 0)
-        if self.hashes & set(digests.values()):
-            res.findings.append(Finding("HASH.KNOWN_BAD", CRITICAL, "known_malware",
-                                        "Trùng mã băm với mẫu mã độc đã biết", engine="hash"))
+        known = next((h for h in digests.values() if h in self.hashes), None)
+        if known:
+            family = self.hashes[known]
+            res.findings.append(Finding(
+                "HASH.KNOWN_BAD", CRITICAL, malwarebazaar.CATEGORY_OF.get(family.lower(), "known_malware"),
+                "Trùng mã băm với mẫu mã độc đã biết" + (f": {family}" if family else ""), engine="hash"))
         if data is not None:
             res.findings += rules.check_content(data, kind, name)
             res.findings += engines.yara_scan(self.yara, data)

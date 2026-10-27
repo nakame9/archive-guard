@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, malwarebazaar
 from .extract import archive_kind
 from .rules import CATEGORIES, SEVERITY_NAME
 from .scanner import Scanner
@@ -62,7 +62,11 @@ def main(argv=None) -> int:
         prog="archiveguard",
         description="Quét file nén (ZIP, RAR, 7z, TAR, GZ…) tìm dấu hiệu trojan, keylogger, worm, ransomware…",
         epilog="Mã thoát: 0 = sạch, 1 = đáng ngờ, 2 = nguy hiểm, 3 = lỗi.")
-    ap.add_argument("paths", nargs="+", type=Path, help="file hoặc thư mục (thư mục: quét mọi file nén bên trong)")
+    ap.add_argument("paths", nargs="*", type=Path, help="file hoặc thư mục (thư mục: quét mọi file nén bên trong)")
+    ap.add_argument("--update-hashes", action="store_true",
+                    help="tải/cập nhật mã băm mã độc theo họ từ MalwareBazaar vào cache trên máy")
+    ap.add_argument("--auth-key", default=os.environ.get("ABUSECH_AUTH_KEY", ""), metavar="KEY",
+                    help="Auth-Key miễn phí của abuse.ch (mặc định lấy từ biến môi trường ABUSECH_AUTH_KEY)")
     ap.add_argument("-p", "--password", action="append", default=[], help="mật khẩu thử cho file nén (lặp lại được)")
     ap.add_argument("--json", type=Path, metavar="FILE", help="ghi báo cáo chi tiết ra file JSON")
     ap.add_argument("-a", "--all", action="store_true", help="liệt kê cả những file sạch")
@@ -86,9 +90,21 @@ def main(argv=None) -> int:
         os.system("")  # bật mã màu ANSI trên cmd Windows đời cũ
     paint = (lambda s, c: f"\033[{c}m{s}\033[0m") if color else (lambda s, c: s)
 
+    if not args.paths and not args.update_hashes:
+        ap.error("cần ít nhất một file/thư mục để quét, hoặc --update-hashes")
     for extra in args.yara + args.hashes:
         if not extra.exists():
             ap.error(f"không tìm thấy {extra}")
+    if args.update_hashes:
+        print(f"Cập nhật mã băm từ MalwareBazaar vào {malwarebazaar.cache_path()} …")
+        try:
+            added, total = malwarebazaar.update(args.auth_key)
+        except (RuntimeError, OSError) as e:  # thiếu/sai Auth-Key, mất mạng…
+            print(f"Lỗi cập nhật: {e}", file=sys.stderr)
+            return 3
+        print(f"Xong: thêm {added} mã băm mới, cache có {total} mẫu.")
+        if not args.paths:
+            return 0
     scanner = Scanner(passwords=args.password, max_depth=args.max_depth, max_file_mb=args.max_size,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)

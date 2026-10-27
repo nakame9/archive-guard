@@ -246,12 +246,15 @@ def check_content(data: bytes, kind: str, name: str) -> list[Finding]:
 
 # --- Danh sách mã băm -------------------------------------------------------------------------
 
-def load_hashes(paths) -> set[str]:
-    """Đọc file mã băm MD5/SHA1/SHA256, mỗi dòng một mã; bỏ qua dòng '#' và chữ sau mã."""
-    hashes = set()
+def load_hashes(paths) -> dict[str, str]:
+    """Đọc file mã băm MD5/SHA1/SHA256: mỗi dòng "mã [tên họ mã độc]", dòng '#' là chú thích.
+
+    Trả về {mã băm: tên họ} (tên họ rỗng nếu dòng không ghi).
+    """
+    hashes = {}
     for p in paths:
         for line in Path(p).read_text(encoding="utf-8", errors="ignore").splitlines():
             token = line.split("#", 1)[0].replace('"', " ").split()
             if token and len(token[0]) in (32, 40, 64):
-                hashes.add(token[0].lower())
+                hashes[token[0].lower()] = token[1] if len(token) > 1 else ""
     return hashes
