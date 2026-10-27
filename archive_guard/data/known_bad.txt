@@ -1,0 +1,7 @@
+# Mã băm (MD5 / SHA1 / SHA256) của các mẫu mã độc đã biết, mỗi dòng một mã.
+# Dòng bắt đầu bằng "#" là chú thích. Có thể nạp thêm danh sách lớn bằng: archiveguard --hashes <file>
+#
+# EICAR – file thử nghiệm VÔ HẠI, dùng để kiểm tra phần mềm quét có hoạt động không.
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
+3395856ce81f2b7382dee72602f798b642f14140
+44d88612fea8a8f36de82e1278abb02f
