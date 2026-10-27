@@ -1,7 +1,10 @@
 """Luật phát hiện dựa trên tên file và nội dung (heuristic)."""
 from __future__ import annotations
 
+import math
 import re
+import struct
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -231,6 +234,10 @@ def check_content(data: bytes, kind: str, name: str) -> list[Finding]:
                            f"Thực chất là file thực thi nhưng mang đuôi .{ext} để đánh lừa"))
     if kind == "ole" and _VBA_OLE in data:
         out.append(Finding("DOC.MACRO", MEDIUM, "downloader", "Tài liệu Office chứa macro VBA"))
+    if kind == "pe":
+        out += check_packer(data)
+    elif kind in ("elf", "macho") and b"UPX!" in data[:4096]:
+        out.append(Finding("PACKER.NAME", LOW, "evasion", "File thực thi bị nén bằng UPX"))
     if kind in INDICATOR_KINDS:
         if len(data) > _HEAD + _TAIL:
             data = data[:_HEAD] + b"\n" + data[-_TAIL:]
@@ -241,6 +248,75 @@ def check_content(data: bytes, kind: str, name: str) -> list[Finding]:
             matched = sorted(set().union(*hits))
             if sum(1 for h in hits if h) >= min_groups and len(matched) >= min_hits:
                 out.append(Finding(rule, sev, cat, title, "khớp: " + ", ".join(matched[:6])))
+    return out
+
+
+# --- Packer (file PE bị nén/mã hóa để giấu mã) ----------------------------------------------
+
+# Tên section đặc trưng → (tên packer, mức độ). UPX hay được dùng hợp pháp nên chỉ LOW;
+# các "protector" chống phân tích (Themida, VMProtect…) phổ biến ở mã độc hơn nên MEDIUM.
+PACKER_SECTIONS = {
+    "upx0": ("UPX", LOW), "upx1": ("UPX", LOW), "upx2": ("UPX", LOW),
+    ".aspack": ("ASPack", MEDIUM), ".adata": ("ASPack", MEDIUM),
+    ".themida": ("Themida", MEDIUM), ".winlice": ("WinLicense", MEDIUM),
+    ".vmp0": ("VMProtect", MEDIUM), ".vmp1": ("VMProtect", MEDIUM), ".vmp2": ("VMProtect", MEDIUM),
+    ".mpress1": ("MPRESS", MEDIUM), ".mpress2": ("MPRESS", MEDIUM),
+    ".nsp0": ("NsPack", MEDIUM), ".nsp1": ("NsPack", MEDIUM), ".nsp2": ("NsPack", MEDIUM),
+    ".enigma1": ("Enigma Protector", MEDIUM), ".enigma2": ("Enigma Protector", MEDIUM),
+    "pec2": ("PECompact", MEDIUM), "pec2mo": ("PECompact", MEDIUM), ".petite": ("Petite", MEDIUM),
+    "kkrunchy": ("kkrunchy", MEDIUM), ".perplex": ("Perplex", MEDIUM), ".packed": ("RLPack", MEDIUM),
+}
+HIGH_ENTROPY = 7.2  # mã máy bình thường ~5.5–6.5; dữ liệu nén/mã hóa ~7.5–8
+_EXECUTE = 0x20000000  # IMAGE_SCN_MEM_EXECUTE
+
+
+def entropy(data: bytes) -> float:
+    """Entropy Shannon (bit/byte): 0 = toàn một giá trị, 8 = ngẫu nhiên hoàn toàn."""
+    if not data:
+        return 0.0
+    n = len(data)
+    return -sum(c / n * math.log2(c / n) for c in Counter(data).values())
+
+
+def pe_sections(data: bytes) -> list[tuple[str, int, bytes]]:
+    """Đọc bảng section của file PE: [(tên, characteristics, dữ liệu thô)]. Header hỏng → []."""
+    try:
+        pe = struct.unpack_from("<I", data, 0x3C)[0]
+        if data[pe:pe + 4] != b"PE\0\0":
+            return []
+        count, opt_size = struct.unpack_from("<H", data, pe + 6)[0], struct.unpack_from("<H", data, pe + 20)[0]
+        table = pe + 24 + opt_size
+        sections = []
+        for i in range(min(count, 96)):  # PE hợp lệ có tối đa 96 section
+            raw = data[table + 40 * i: table + 40 * i + 40]
+            if len(raw) < 40:
+                break
+            name = raw[:8].rstrip(b"\0").decode("latin-1")
+            size, offset = struct.unpack_from("<II", raw, 16)
+            chars = struct.unpack_from("<I", raw, 36)[0]
+            sections.append((name, chars, data[offset:offset + size]))
+        return sections
+    except struct.error:
+        return []
+
+
+def check_packer(data: bytes) -> list[Finding]:
+    sections = pe_sections(data)
+    out = []
+    names = sorted({PACKER_SECTIONS[n.lower()] for n, _, _ in sections if n.lower() in PACKER_SECTIONS})
+    if not names and b"UPX!" in data[:4096]:  # UPX đổi tên section vẫn còn dấu này
+        names = [("UPX", LOW)]
+    for packer, sev in names:
+        out.append(Finding("PACKER.NAME", sev, "evasion", f"File thực thi được nén/bảo vệ bằng {packer}",
+                           "packer làm ẩn chuỗi, các luật dò hành vi có thể bỏ sót"))
+    # shortcut: chỉ tính entropy trên 1 MB đầu mỗi section cho nhanh; đủ để nhận ra dữ liệu nén
+    hot = [(n or "?", entropy(raw[:1 << 20])) for n, chars, raw in sections
+           if chars & _EXECUTE and len(raw) >= 4096]
+    hot = [(n, e) for n, e in hot if e > HIGH_ENTROPY]
+    if hot:
+        out.append(Finding("PACKER.ENTROPY", MEDIUM, "evasion",
+                           "Vùng mã thực thi có entropy rất cao – mã đã bị nén hoặc mã hóa",
+                           ", ".join(f"{n}: {e:.2f}" for n, e in hot)))
     return out
 
 

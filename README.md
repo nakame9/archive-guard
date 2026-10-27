@@ -23,6 +23,7 @@ hay mở bất cứ thứ gì bên trong.
 |---|---|
 | Tên file | đuôi kép `hoadon.pdf.exe`, ký tự đảo chiều Unicode (RLO), chèn khoảng trắng giấu đuôi, `.scr/.hta/.lnk/.iso…`, `autorun.inf`, Zip Slip, symlink nguy hiểm |
 | Nội dung | file `.exe` đội lốt `.pdf/.jpg`, macro VBA trong tài liệu Office |
+| Packer | tên section của UPX, ASPack, Themida, VMProtect, MPRESS, NsPack, Enigma, PECompact…, dấu `UPX!`, và entropy > 7.2 ở vùng mã thực thi (mã đã bị nén/mã hóa) |
 | Hành vi (chuỗi ASCII + UTF-16) | keylogger (hook bàn phím, nhãn `[BACKSPACE]`…), tiêm mã tiến trình, tự khởi động, tải & chạy mã (PowerShell/VBS dropper), tắt Defender/AMSI, chống máy ảo, xóa shadow copy & thư đòi tiền chuộc (ransomware), đánh cắp mật khẩu trình duyệt/ví tiền ảo, gửi dữ liệu qua Telegram/Discord, reverse shell, lây lan qua USB/mạng (worm) |
 | Mã băm | so với mã băm mẫu mã độc thật từ MalwareBazaar, phân theo họ (`--update-hashes`), và danh sách riêng của bạn (`--hashes`) |
 | YARA *(tùy chọn)* | luật đi kèm + luật của bạn (`--yara`) |
@@ -189,7 +190,9 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
 
 - Phát hiện dựa trên heuristic nên **có thể báo nhầm**: thư viện hợp pháp làm việc với Windows API
   (vd. `pywin32`, `pynput`) dùng chính các hàm mà keylogger/trojan dùng và sẽ bị đánh dấu ĐÁNG NGỜ.
-- **Có thể bỏ sót** mã độc bị nén/mã hóa bằng packer (UPX, Themida…) vì chuỗi bị giấu đi. Bật ClamAV/YARA để tăng độ phủ.
+- File bị pack chỉ được **cảnh báo là đã pack** (ĐÁNG NGỜ); các chuỗi hành vi bên trong vẫn bị giấu nên không biết
+  nó là keylogger hay worm. Phần mềm hợp pháp dùng Themida/VMProtect (vd. game có chống crack) cũng bị báo
+  ĐÁNG NGỜ; UPX đơn thuần chỉ ở mức LOW. Bật ClamAV/YARA để tăng độ phủ.
 - Chỉ dò chuỗi trong 32 MB đầu + 4 MB cuối của mỗi file để giữ tốc độ.
 - Mã băm chỉ bắt được **đúng** mẫu đã có trên MalwareBazaar: đổi một byte là mã băm khác. Đây là lớp bổ sung
   cho heuristic, không thay thế nó.

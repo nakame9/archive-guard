@@ -206,6 +206,36 @@ def test_api_request_format(monkeypatch):
     assert seen == {"key": "k", "body": "query=get_siginfo&signature=AgentTesla&limit=1000"}
 
 
+def make_pe(sections):
+    """PE tối giản: header DOS + PE + bảng section [(tên, dữ liệu, characteristics)]."""
+    import struct
+    table = 0x40 + 24
+    offset = table + 40 * len(sections)
+    head = bytearray(b"MZ" + bytes(0x3A) + struct.pack("<I", 0x40) + b"PE\0\0"
+                     + struct.pack("<HH", 0x14C, len(sections)) + bytes(12) + struct.pack("<HH", 0, 0))
+    body = b""
+    for name, data, chars in sections:
+        head += name.encode().ljust(8, b"\0") + struct.pack("<IIIIIIHHI", len(data), 0, len(data),
+                                                           offset + len(body), 0, 0, 0, 0, chars)
+        body += data
+    return bytes(head) + body
+
+
+def test_packer_detection():
+    import os
+    code = (b"\x55\x8b\xec\x83\xec\x10" * 2000)[:8192]  # mã máy lặp lại → entropy thấp
+    packed = os.urandom(8192)  # dữ liệu nén/mã hóa → entropy ~8
+    exec_flag = 0x60000020
+    rules = rules_of(scan(make_pe([(".text", code, exec_flag)]), "app.exe"))
+    assert not {r for r in rules if r.startswith("PACKER")}
+    upx = rules_of(scan(make_pe([("UPX0", b"", exec_flag), ("UPX1", packed, exec_flag)]), "app.exe"))
+    assert {"PACKER.NAME", "PACKER.ENTROPY"} <= upx
+    themida = scan(make_pe([(".themida", code, exec_flag)]), "app.exe")
+    assert any("Themida" in x.title for f in themida.files for x in f.findings)
+    assert "PACKER.ENTROPY" in rules_of(scan(make_pe([(".text", packed, exec_flag)]), "app.exe"))
+    assert scan(b"MZ" + bytes(10), "broken.exe").verdict == "clean"  # header hỏng không gây lỗi
+
+
 def test_cli_exit_codes_and_json(tmp_path):
     (tmp_path / "clean.zip").write_bytes(make_zip({"a.txt": b"hi"}))
     (tmp_path / "bad.zip").write_bytes(make_zip({"invoice.pdf.exe": FAKE_EXE}))
