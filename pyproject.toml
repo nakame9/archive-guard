@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archive-guard"
-version = "0.3.1"
+version = "0.4.0"
 description = "Quét file nén (ZIP, RAR, 7z, TAR, GZ…) tìm dấu hiệu trojan, keylogger, worm, ransomware"
 readme = "README.md"
 license = "MIT"

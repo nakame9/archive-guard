@@ -81,6 +81,10 @@ def main(argv=None) -> int:
     ap.add_argument("--max-depth", type=int, default=5, help="số tầng file nén lồng nhau tối đa (mặc định 5)")
     ap.add_argument("--max-size", type=int, default=256, metavar="MB",
                     help="dung lượng tối đa của mỗi file được đọc (mặc định 256 MB)")
+    ap.add_argument("--max-total", type=int, default=4096, metavar="MB",
+                    help="tổng dung lượng giải nén tối đa cho mỗi file nén, tính cả các tầng lồng nhau (mặc định 4096 MB)")
+    ap.add_argument("--timeout", type=int, default=300, metavar="GIÂY",
+                    help="thời gian quét tối đa cho mỗi file nén (mặc định 300 giây)")
     ap.add_argument("--no-yara", action="store_true", help="không dùng YARA")
     ap.add_argument("--no-clamav", action="store_true", help="không dùng ClamAV")
     ap.add_argument("--no-color", action="store_true", help="tắt màu")
@@ -110,6 +114,7 @@ def main(argv=None) -> int:
         if not args.paths:
             return 0
     scanner = Scanner(passwords=args.password, max_depth=args.max_depth, max_file_mb=args.max_size,
+                      max_total_mb=args.max_total, timeout=args.timeout,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)
     print(f"ArchiveGuard {__version__} | " + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items()))

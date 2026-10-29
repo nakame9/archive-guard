@@ -86,7 +86,7 @@ def _digests(src) -> dict:
 
 class Scanner:
     def __init__(self, *, passwords=(), max_depth=5, max_file_mb=256, max_total_mb=4096,
-                 max_files=20000, max_ratio=100, hash_files=(), yara_paths=(),
+                 max_files=20000, max_ratio=100, timeout=300, hash_files=(), yara_paths=(),
                  use_yara=True, use_clamav=True):
         self.passwords = list(passwords)
         self.max_depth = max_depth
@@ -94,6 +94,7 @@ class Scanner:
         self.max_total = max_total_mb * MB
         self.max_files = max_files
         self.max_ratio = max_ratio
+        self.timeout = timeout
         cache = malwarebazaar.cache_path()
         hash_status = (f"cache MalwareBazaar {time.strftime('%Y-%m-%d', time.localtime(cache.stat().st_mtime))}"
                        if cache.exists() else "chạy --update-hashes để tải thêm từ MalwareBazaar")
@@ -115,7 +116,7 @@ class Scanner:
         report = Report(str(path))
         with open(path, "rb") as f:
             head = f.read(512)
-        budget = {"files": 0, "bytes": 0}
+        budget = self._budget()
         if archive_kind(head) or path.stat().st_size <= self.max_file:
             # file nén gốc được đọc thẳng từ đĩa, không nạp cả file vào RAM
             src = path if archive_kind(head) else path.read_bytes()
@@ -133,7 +134,7 @@ class Scanner:
 
     def scan_bytes(self, data: bytes, name: str = "data") -> Report:
         report = Report(name)
-        self._scan(data, name, name, 0, report, {"files": 0, "bytes": 0})
+        self._scan(data, name, name, 0, report, self._budget())
         return report
 
     def _scan(self, src, name, display, depth, report, budget):
@@ -164,20 +165,42 @@ class Scanner:
             else:
                 self._walk(kind, src, name, display, depth, res, report, budget)
 
+    def _budget(self):
+        """Ngân sách dùng chung cho MỌI tầng lồng nhau của một lần quét."""
+        return {"files": 0, "bytes": 0, "deadline": time.monotonic() + self.timeout, "stopped": False}
+
+    def _over_budget(self, budget, res, report, display):
+        """True nếu đã vượt ngân sách; phát hiện chỉ được ghi một lần, ở tầng chạm ngưỡng đầu tiên."""
+        if budget["stopped"]:
+            return True
+        if budget["files"] > self.max_files:
+            f = Finding("ARCHIVE.TOO_MANY_FILES", MEDIUM, "archive_abuse",
+                        f"Hơn {self.max_files} file bên trong – dừng quét")
+        elif budget["bytes"] > self.max_total:
+            f = Finding("ARCHIVE.BOMB_TOTAL", HIGH, "archive_abuse",
+                        f"Tổng dung lượng giải nén vượt {self.max_total // MB} MB – nghi zip bomb")
+        elif time.monotonic() > budget["deadline"]:
+            f = Finding("ARCHIVE.TIMEOUT", MEDIUM, "archive_abuse",
+                        f"Quét quá {self.timeout} giây – dừng (file nén có thể được thiết kế để làm treo trình quét)")
+        else:
+            return False
+        budget["stopped"] = True
+        res.findings.append(f)
+        report.incomplete.append(f"{display}: dừng – {f.title}")
+        return True
+
     def _walk(self, kind, src, name, display, depth, res, report, budget):
+        if self._over_budget(budget, res, report, display):
+            return
+        members = iter_members(kind, src, name, self.max_file, self.passwords,
+                               remaining=lambda: self.max_total - budget["bytes"])
         try:
-            for m in iter_members(kind, src, name, self.max_file, self.passwords):
+            for m in members:
                 budget["files"] += 1
-                budget["bytes"] += m.size
-                if budget["files"] > self.max_files:
-                    res.findings.append(Finding("ARCHIVE.TOO_MANY_FILES", MEDIUM, "archive_abuse",
-                                                f"Hơn {self.max_files} file bên trong – dừng quét"))
-                    report.incomplete.append(f"{display}: quá nhiều file")
-                    return
-                if budget["bytes"] > self.max_total:
-                    res.findings.append(Finding("ARCHIVE.BOMB_TOTAL", HIGH, "archive_abuse",
-                                                f"Tổng dung lượng giải nén vượt {self.max_total // MB} MB – nghi zip bomb"))
-                    report.incomplete.append(f"{display}: dừng vì quá dung lượng")
+                # đếm byte THỰC TẾ đã đọc ra (header có thể khai man), hoặc kích thước khai báo nếu bỏ qua nội dung
+                budget["bytes"] += max(m.size, len(m.data or b""))
+                if self._over_budget(budget, res, report, display):
+                    members.close()  # dừng hẳn bộ giải nén, không đọc thêm byte nào
                     return
                 child = f"{display} > {m.name}"
                 if m.packed and m.size >= BOMB_MIN_SIZE and m.size / m.packed > self.max_ratio:

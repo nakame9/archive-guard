@@ -59,14 +59,19 @@ def archive_kind(head: bytes) -> str | None:
     return None
 
 
-def iter_members(kind, src, name, limit, passwords=()):
+def iter_members(kind, src, name, limit, passwords=(), remaining=lambda: 1 << 62):
     """Duyệt các file bên trong một file nén.
 
     src: bytes (file nén nằm trong file nén khác) hoặc đường dẫn (file gốc trên đĩa).
+    remaining(): số byte còn lại trong ngân sách chung (7z dùng để quyết định có giải nén lô tiếp không).
+    ZIP/TAR/RAR giải nén lần lượt từng file nên bên gọi tự kiểm tra ngân sách sau mỗi file.
     """
-    reader = {"zip": _zip, "7z": _7z, "rar": _rar}.get(kind, _tar)
     try:
-        yield from reader(src, name, kind, limit, list(passwords))
+        if kind == "7z":
+            yield from _7z(src, limit, list(passwords), remaining)
+        else:
+            reader = {"zip": _zip, "rar": _rar}.get(kind, _tar)
+            yield from reader(src, name, kind, limit, list(passwords))
     except ArchiveError:
         raise
     except Exception as e:  # thư viện giải nén ném đủ loại lỗi với file hỏng/cố tình làm hỏng
@@ -144,51 +149,69 @@ def _tar(src, name, kind, limit, passwords):
                 yield m
 
 
-def _7z(src, name, kind, limit, passwords):
+def _7z(src, limit, passwords, remaining):
+    """Giải nén 7z theo từng lô <= limit byte, hỏi ngân sách chung (remaining) trước mỗi lô.
+
+    Không bao giờ giữ quá một lô trong RAM; khi bên gọi dừng (hết ngân sách) thì ngừng giải nén luôn.
+    """
     import py7zr
-
-    locked = None
-    for pwd in [None, *passwords]:
-        try:
-            members = _7z_read(py7zr, src, limit, pwd)
-        except Exception as e:
-            if pwd is None and not isinstance(e, py7zr.exceptions.PasswordRequired):
-                raise
-            continue  # sai mật khẩu → thử mật khẩu tiếp theo
-        if any(m.encrypted and m.data is None for m in members):
-            locked = locked or members
-            continue
-        yield from members
-        return
-    if locked is None:
-        raise EncryptedArchive("7z bị mã hóa cả danh sách file" + (", sai mật khẩu" if passwords else ""))
-    yield from locked
-
-
-def _7z_read(py7zr, src, limit, pwd):
     from py7zr.io import BytesIOFactory
 
-    with _open(src) as f, py7zr.SevenZipFile(f, password=pwd) as z:
-        infos = [i for i in z.list() if not i.is_directory]
-        encrypted = z.needs_password()
-        locked = encrypted and pwd is None
+    # 1. Tìm mật khẩu đúng bằng cách giải nén thử file nhỏ nhất
+    chosen, infos, encrypted = None, None, False
+    for pwd in [None, *passwords]:
+        try:
+            with _open(src) as f, py7zr.SevenZipFile(f, password=pwd) as z:
+                infos = [i for i in z.list() if not i.is_directory]
+                encrypted = z.needs_password()
+                if encrypted and pwd is None:
+                    continue
+                probe = min((i for i in infos if i.uncompressed <= limit), key=lambda i: i.uncompressed,
+                            default=None)
+                if probe:
+                    z.extract(targets=[probe.filename], factory=BytesIOFactory(limit + 1))
+            chosen = pwd
+            break
+        except py7zr.exceptions.PasswordRequired:
+            continue
+        except Exception:
+            if pwd is None:
+                raise
+            continue  # sai mật khẩu → thử mật khẩu tiếp theo
+    if infos is None:
+        raise EncryptedArchive("7z bị mã hóa cả danh sách file" + (", sai mật khẩu" if passwords else ""))
+    if encrypted and chosen is None:
+        for i in infos:
+            yield Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=True, note=LOCKED)
+        return
+
+    def extract(batch):
         factory = BytesIOFactory(limit + 1)
-        wanted = [i.filename for i in infos if i.uncompressed <= limit]
-        if wanted and not locked:
-            z.extract(targets=wanted, factory=factory)
-    members = []
+        with _open(src) as f, py7zr.SevenZipFile(f, password=chosen) as z:
+            z.extract(targets=[i.filename for i in batch], factory=factory)
+        for i in batch:
+            m = Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=encrypted)
+            if i.filename in factory.products:
+                buf = factory.get(i.filename)
+                buf.seek(0)
+                m.data, m.note = _read(buf, limit)
+            else:
+                m.note = "không giải nén được"
+            yield m
+
+    # 2. Gom file thành lô; một lô chỉ được giải nén khi còn đủ ngân sách cho nó
+    batch, pending = [], 0
     for i in infos:
-        m = Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=encrypted)
-        if locked:
-            m.note = LOCKED
-        elif i.filename not in factory.products:
-            m.note = TOO_BIG
-        else:
-            buf = factory.get(i.filename)
-            buf.seek(0)
-            m.data, m.note = _read(buf, limit)
-        members.append(m)
-    return members
+        if i.uncompressed > limit:
+            yield Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=encrypted, note=TOO_BIG)
+            continue
+        if batch and pending + i.uncompressed > min(limit, remaining()):
+            yield from extract(batch)
+            batch, pending = [], 0
+        batch.append(i)
+        pending += i.uncompressed
+    if batch:
+        yield from extract(batch)
 
 
 @contextlib.contextmanager

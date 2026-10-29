@@ -258,6 +258,70 @@ def test_skipped_content_is_marked_partial(tmp_path, capsys):
     assert report["complete"] is False and report["incomplete"]
 
 
+# --- Ngân sách tài nguyên: kiểm thử đối kháng bằng giới hạn nhỏ + dữ liệu vô hại -----------------
+
+def _scanned(report):
+    return sum(1 for f in report.files if f.kind != "?")
+
+
+def test_byte_budget_is_shared_across_nested_levels():
+    # mỗi tầng chỉ 600 KB (dưới ngưỡng 1 MB) nhưng cộng các tầng lại thì vượt
+    inner = [make_zip({f"part{i}.bin": os.urandom(300_000)}) for i in range(8)]
+    report = scan(make_zip({f"level/{i}.zip": z for i, z in enumerate(inner)}), max_total_mb=1)
+    assert "ARCHIVE.BOMB_TOTAL" in rules_of(report)
+    assert _scanned(report) < 1 + 8 * 2  # dừng sớm, không đọc hết
+    assert sum(x.rule == "ARCHIVE.BOMB_TOTAL" for f in report.files for x in f.findings) == 1
+
+
+def test_file_budget_is_shared_across_nested_levels():
+    inner = make_zip({f"f{i}.txt": b"x" for i in range(40)})
+    report = scan(make_zip({f"{i}.zip": inner for i in range(10)}), max_files=100)
+    assert "ARCHIVE.TOO_MANY_FILES" in rules_of(report)
+    assert len(report.files) <= 102
+
+
+def test_budget_counts_actual_bytes_not_declared(monkeypatch):
+    from archive_guard import scanner as sc
+    from archive_guard.extract import Member
+    read = []
+
+    def lying_reader(*a, **kw):  # header khai 1 byte cho mỗi file, nhưng mỗi file thực tế 400 KB
+        for i in range(20):
+            read.append(i)
+            yield Member(f"{i}.bin", data=os.urandom(400_000), size=1)
+
+    monkeypatch.setattr(sc, "iter_members", lying_reader)
+    report = scan(make_zip({"x": b"x"}), max_total_mb=1)
+    assert "ARCHIVE.BOMB_TOTAL" in rules_of(report)
+    assert len(read) == 3  # dừng ngay ở file thứ 3 (> 1 MB), bộ giải nén không được đọc tiếp
+
+
+def test_7z_extracts_in_batches_within_budget(monkeypatch):
+    py7zr = pytest.importorskip("py7zr")
+    calls = []
+    real = py7zr.SevenZipFile.extract
+
+    def spy(self, *a, targets=None, **kw):
+        calls.append(len(targets or []))
+        return real(self, *a, targets=targets, **kw)
+
+    monkeypatch.setattr(py7zr.SevenZipFile, "extract", spy)
+    data = make_7z({f"{i}.bin": os.urandom(400_000) for i in range(6)})
+    full = scan(data, "a.7z", max_file_mb=1)
+    assert _scanned(full) == 7 and not full.incomplete
+    assert max(calls[1:]) <= 2  # lần đầu dò mật khẩu; sau đó mỗi lô <= 1 MB (2 file) trong RAM
+    calls.clear()
+    limited = scan(data, "a.7z", max_file_mb=1, max_total_mb=1)
+    assert "ARCHIVE.BOMB_TOTAL" in rules_of(limited)
+    assert sum(calls[1:]) <= 3  # không giải nén các lô sau khi đã hết ngân sách
+
+
+def test_time_budget():
+    report = scan(make_zip({f"{i}.zip": make_zip({"a.txt": b"a"}) for i in range(5)}), timeout=0)
+    assert "ARCHIVE.TIMEOUT" in rules_of(report)
+    assert report.incomplete
+
+
 def test_cli_exit_codes_and_json(tmp_path):
     (tmp_path / "clean.zip").write_bytes(make_zip({"a.txt": b"hi"}))
     (tmp_path / "bad.zip").write_bytes(make_zip({"invoice.pdf.exe": FAKE_EXE}))

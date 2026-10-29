@@ -14,7 +14,20 @@ hay mở bất cứ thứ gì bên trong.
 - **Không bao giờ giải nén ra đĩa** – mọi thứ được đọc trong bộ nhớ, nên file độc hại kiểu
   `../../Windows/evil.exe` (Zip Slip) không thể ghi đè gì cả.
 - **Đi vào file nén lồng nhau** (zip trong rar trong 7z…), có giới hạn độ sâu.
-- **Chống zip bomb**: giới hạn dung lượng mỗi file, tổng dung lượng giải nén, số file và tỷ lệ nén.
+- **Chống archive bomb** bằng một **ngân sách tài nguyên chung** cho cả file nén và mọi tầng lồng bên trong:
+
+  | Giới hạn | Mặc định | Tùy chọn |
+  |---|---|---|
+  | Dung lượng mỗi file con được đọc | 256 MB | `--max-size` |
+  | Tổng byte giải nén (đếm byte **thực tế** đọc ra, không tin kích thước ghi trong header) | 4096 MB | `--max-total` |
+  | Tổng số file | 20.000 | – |
+  | Số tầng lồng nhau | 5 | `--max-depth` |
+  | Thời gian quét | 300 giây | `--timeout` |
+  | Tỷ lệ nén của file con từ 50 MB | 100:1 | – |
+
+  Chạm ngưỡng nào thì **dừng toàn bộ** lần quét (không đọc thêm byte nào), ghi phát hiện một lần và đánh dấu
+  kết quả `CHƯA ĐẦY ĐỦ`. File 7z được giải nén theo từng lô ≤ `--max-size` và chỉ khi còn ngân sách, nên không
+  bao giờ nạp cả file 7z vào RAM.
 - **Hỗ trợ file có mật khẩu** (`--password`), và cảnh báo khi file thực thi bị khóa mật khẩu –
   thủ thuật phổ biến để né antivirus.
 - **Nhiều lớp phát hiện:**
@@ -194,6 +207,10 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
 - File bị pack chỉ được **cảnh báo là đã pack** (ĐÁNG NGỜ); các chuỗi hành vi bên trong vẫn bị giấu nên không biết
   nó là keylogger hay worm. Phần mềm hợp pháp dùng Themida/VMProtect (vd. game có chống crack) cũng bị báo
   ĐÁNG NGỜ; UPX đơn thuần chỉ ở mức LOW. Bật ClamAV/YARA để tăng độ phủ.
+- RAM đỉnh trong trường hợp xấu nhất xấp xỉ `--max-depth × --max-size` (mỗi tầng lồng giữ nội dung của tầng
+  cha trong lúc quét tầng con), tức khoảng 1,3 GB với mặc định. Máy yếu nên hạ `--max-size`.
+- Hạn thời gian được kiểm tra giữa các file con; riêng việc quét nội dung một file (tối đa `--max-size`) không bị
+  ngắt giữa chừng.
 - Mọi lớp kiểm tra đọc **trọn nội dung** mỗi file (file 256 MB mất khoảng 25 giây). File con lớn hơn `--max-size`
   (mặc định 256 MB), file bị khóa mật khẩu hay lồng quá sâu thì **không quét được** và được đánh dấu rõ:
   kết luận ghi `CHƯA ĐẦY ĐỦ`, còn báo cáo JSON có `"complete": false` kèm danh sách `incomplete`.
