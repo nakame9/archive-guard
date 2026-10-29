@@ -120,6 +120,7 @@ Ví dụ kết quả (file mẫu vô hại tạo trong lúc thử nghiệm):
 ```
 
 **Mã thoát** (dùng được trong script/CI): `0` sạch · `1` đáng ngờ · `2` nguy hiểm · `3` lỗi.
+Nếu có phần không quét được (file quá lớn, có mật khẩu…), kết luận sẽ kèm `CHƯA ĐẦY ĐỦ` và JSON có `"complete": false`.
 
 ## Cách chấm điểm
 
@@ -193,7 +194,12 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
 - File bị pack chỉ được **cảnh báo là đã pack** (ĐÁNG NGỜ); các chuỗi hành vi bên trong vẫn bị giấu nên không biết
   nó là keylogger hay worm. Phần mềm hợp pháp dùng Themida/VMProtect (vd. game có chống crack) cũng bị báo
   ĐÁNG NGỜ; UPX đơn thuần chỉ ở mức LOW. Bật ClamAV/YARA để tăng độ phủ.
-- Chỉ dò chuỗi trong 32 MB đầu + 4 MB cuối của mỗi file để giữ tốc độ.
+- Mọi lớp kiểm tra đọc **trọn nội dung** mỗi file (file 256 MB mất khoảng 25 giây). File con lớn hơn `--max-size`
+  (mặc định 256 MB), file bị khóa mật khẩu hay lồng quá sâu thì **không quét được** và được đánh dấu rõ:
+  kết luận ghi `CHƯA ĐẦY ĐỦ`, còn báo cáo JSON có `"complete": false` kèm danh sách `incomplete`.
+  Khi dùng trong CI, nên kiểm tra cả trường `complete`, vì mã thoát `0` chỉ nói phần đã quét là sạch.
+- ClamAV không quét file trên 2 GB. Nếu dùng `clamdscan`, hãy tự nâng `MaxFileSize`/`MaxScanSize` trong
+  `clamd.conf` (mặc định chỉ 100 MB).
 - Mã băm chỉ bắt được **đúng** mẫu đã có trên MalwareBazaar: đổi một byte là mã băm khác. Đây là lớp bổ sung
   cho heuristic, không thay thế nó.
 - Quét chính repo này sẽ ra NGUY HIỂM, vì `rules.py` và file test chứa đúng các chuỗi cần dò (chuyện thường gặp với mọi bộ luật antivirus).

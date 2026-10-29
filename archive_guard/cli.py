@@ -52,8 +52,12 @@ def _print_report(report, show_all, paint):
         print(paint(f"  ! Chưa kiểm tra được: {note}", "33"))
     verdict = report.verdict
     kinds = ", ".join(CATEGORIES.get(c, c) for c in report.categories)
-    print("  KẾT LUẬN: " + paint(LABEL[verdict], COLOR[verdict] + ";1") + (f" – dấu hiệu: {kinds}" if kinds else ""))
-    if verdict == "clean":
+    partial = f" (CHƯA ĐẦY ĐỦ – {len(report.incomplete)} phần chưa kiểm tra)" if report.incomplete else ""
+    print("  KẾT LUẬN: " + paint(LABEL[verdict] + partial, COLOR[verdict] + ";1")
+          + (f" – dấu hiệu: {kinds}" if kinds else ""))
+    if verdict == "clean" and report.incomplete:
+        print("  (Phần đã quét không có dấu hiệu nguy hiểm, nhưng những phần ở trên chưa được kiểm tra.)")
+    elif verdict == "clean":
         print("  (Không phát hiện dấu hiệu nguy hiểm – không có nghĩa là chắc chắn an toàn.)")
 
 

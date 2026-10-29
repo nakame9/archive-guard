@@ -1,6 +1,7 @@
 """Mọi mẫu thử đều được tạo trong bộ nhớ lúc chạy test, không có mã độc thật nào trong repo."""
 import gzip
 import io
+import os
 import json
 import tarfile
 import zipfile
@@ -234,6 +235,27 @@ def test_packer_detection():
     assert any("Themida" in x.title for f in themida.files for x in f.findings)
     assert "PACKER.ENTROPY" in rules_of(scan(make_pe([(".text", packed, exec_flag)]), "app.exe"))
     assert scan(b"MZ" + bytes(10), "broken.exe").verdict == "clean"  # header hỏng không gây lỗi
+
+
+def test_payload_in_middle_of_large_file():
+    import os
+    from archive_guard import rules
+    # payload nằm giữa file 48 MB (ngoài vùng 32 MB đầu + 4 MB cuối của bản cũ)
+    # và vắt qua ranh giới hai khúc quét 8 MB
+    marker = b"vssadmin delete shadows /all /quiet"
+    cut = 40 * (1 << 20) - 10
+    data = FAKE_EXE + os.urandom(cut - len(FAKE_EXE)) + marker + os.urandom(8 << 20)
+    assert cut % rules._CHUNK != 0 and cut // rules._CHUNK != (cut + len(marker)) // rules._CHUNK
+    assert "RANSOM.KILL_BACKUP" in rules_of(scan(data, "big.exe"))
+
+
+def test_skipped_content_is_marked_partial(tmp_path, capsys):
+    path = tmp_path / "big.zip"
+    path.write_bytes(make_zip({"big.bin": os.urandom(2 << 20)}))
+    assert main([str(path), "--no-clamav", "--max-size", "1", "--json", str(tmp_path / "r.json")]) == 0
+    assert "CHƯA ĐẦY ĐỦ" in capsys.readouterr().out
+    report = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))["reports"][0]
+    assert report["complete"] is False and report["incomplete"]
 
 
 def test_cli_exit_codes_and_json(tmp_path):

@@ -68,7 +68,7 @@ class Report:
 
     def to_dict(self):
         return {"target": self.target, "verdict": self.verdict, "categories": self.categories,
-                "incomplete": self.incomplete, "files": [f.to_dict() for f in self.files]}
+                "complete": not self.incomplete, "incomplete": self.incomplete, "files": [f.to_dict() for f in self.files]}
 
 
 def _digests(src) -> dict:

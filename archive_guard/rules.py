@@ -220,9 +220,20 @@ for *_, _groups, _mg, _mh in _INDICATORS:
         _LOOKUP[_s.encode("utf-16-le")] = _s
 
 INDICATOR_KINDS = {"pe", "elf", "macho", "script", "lnk", "unknown"}
-# shortcut: chỉ dò chuỗi trong 32 MB đầu + 4 MB cuối (~3 giây); file "độn" cho to thường
-# giữ mã thật ở đầu. Chuyển sang Aho-Corasick (pyahocorasick) nếu cần quét trọn file lớn.
-_HEAD, _TAIL = 32 << 20, 4 << 20
+_CHUNK = 8 << 20  # quét từng khúc 8 MB để bộ nhớ không tăng gấp đôi với file lớn
+_OVERLAP = max(map(len, _LOOKUP)) - 1  # chuỗi nằm vắt qua ranh giới hai khúc vẫn được tìm thấy
+
+
+def _find_strings(data: bytes) -> set[str]:
+    """Tìm mọi chỉ dấu trong TOÀN BỘ dữ liệu (~10 giây cho 100 MB)."""
+    pending, found = dict(_LOOKUP), set()
+    for start in range(0, len(data), _CHUNK):
+        low = data[max(0, start - _OVERLAP): start + _CHUNK].lower()  # bytes.lower() chỉ đổi A-Z
+        for v in [v for v in pending if v in low]:
+            found.add(pending.pop(v))
+        if not pending:
+            break
+    return found
 _VBA_OLE = "_VBA_PROJECT".encode("utf-16-le")
 
 
@@ -239,10 +250,7 @@ def check_content(data: bytes, kind: str, name: str) -> list[Finding]:
     elif kind in ("elf", "macho") and b"UPX!" in data[:4096]:
         out.append(Finding("PACKER.NAME", LOW, "evasion", "File thực thi bị nén bằng UPX"))
     if kind in INDICATOR_KINDS:
-        if len(data) > _HEAD + _TAIL:
-            data = data[:_HEAD] + b"\n" + data[-_TAIL:]
-        low = data.lower()  # bytes.lower() chỉ đổi A-Z nên an toàn với dữ liệu nhị phân
-        found = {s for v, s in _LOOKUP.items() if v in low}
+        found = _find_strings(data)
         for rule, sev, cat, title, groups, min_groups, min_hits in _INDICATORS:
             hits = [found & g for g in groups]
             matched = sorted(set().union(*hits))
@@ -309,8 +317,7 @@ def check_packer(data: bytes) -> list[Finding]:
     for packer, sev in names:
         out.append(Finding("PACKER.NAME", sev, "evasion", f"File thực thi được nén/bảo vệ bằng {packer}",
                            "packer làm ẩn chuỗi, các luật dò hành vi có thể bỏ sót"))
-    # shortcut: chỉ tính entropy trên 1 MB đầu mỗi section cho nhanh; đủ để nhận ra dữ liệu nén
-    hot = [(n or "?", entropy(raw[:1 << 20])) for n, chars, raw in sections
+    hot = [(n or "?", entropy(raw)) for n, chars, raw in sections
            if chars & _EXECUTE and len(raw) >= 4096]
     hot = [(n, e) for n, e in hot if e > HIGH_ENTROPY]
     if hot:

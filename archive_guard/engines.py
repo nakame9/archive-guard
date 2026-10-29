@@ -51,8 +51,11 @@ def clamav_scan(path) -> list[Finding] | None:
         exe = shutil.which(cmd)
         if not exe:
             continue
+        # clamscan mặc định bỏ qua file > 100 MB mà vẫn trả "sạch" → nâng lên mức tối đa ClamAV hỗ trợ (2 GB).
+        # clamdscan lấy giới hạn từ clamd.conf (MaxFileSize, MaxScanSize), không đổi được từ đây.
+        limits = ["--max-filesize=2047M", "--max-scansize=2047M"] if cmd == "clamscan" else []
         try:
-            p = subprocess.run([exe, "--no-summary", "--infected", str(path)],
+            p = subprocess.run([exe, "--no-summary", "--infected", *limits, str(path)],
                                capture_output=True, text=True, timeout=900)
         except (OSError, subprocess.TimeoutExpired):
             continue
