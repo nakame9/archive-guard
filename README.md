@@ -183,12 +183,25 @@ archive_guard/
 ├── rules.py        # luật tên file, loại file, chỉ dấu hành vi, danh sách mã băm
 ├── engines.py      # YARA và ClamAV (tùy chọn)
 ├── malwarebazaar.py  # tải mã băm theo họ mã độc từ MalwareBazaar vào cache
+├── benchmark.py    # đo precision/recall/tỷ lệ báo nhầm trên bộ dữ liệu có nhãn
 └── data/
     ├── known_bad.txt       # mã băm mặc định (EICAR)
     ├── malwarebazaar.txt   # mã băm theo họ, GitHub Actions cập nhật hằng tuần
     └── rules/*.yar     # luật YARA đi kèm
 tests/test_scanner.py   # test – mọi mẫu thử được tạo trong bộ nhớ
 ```
+
+## Độ chính xác đã đo
+
+Chi tiết, phương pháp và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md). Tóm tắt (bản 0.4.0, 109 gói phần mềm sạch thật):
+
+| Phần mềm sạch | Bị gắn ĐÁNG NGỜ | Bị gắn NGUY HIỂM |
+|---|---|---|
+| Thông dụng (93 gói) | 8,6% | 0% |
+| Công cụ hai mặt: hook bàn phím, tiêm tiến trình, kiểm thử xâm nhập (16 gói) | 62,5% | 6,2% |
+
+**Khả năng phát hiện mã độc thật (recall) chưa được đo.** docs/BENCHMARK.md có quy trình để tự đo trong máy ảo
+bằng công cụ `python -m archive_guard.benchmark`.
 
 ## Chạy test
 
