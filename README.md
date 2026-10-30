@@ -26,7 +26,7 @@ hay mở bất cứ thứ gì bên trong.
   | Tỷ lệ nén của file con từ 50 MB | 100:1 | – |
 
   Chạm ngưỡng nào thì **dừng toàn bộ** lần quét (không đọc thêm byte nào), ghi phát hiện một lần và đánh dấu
-  kết quả `CHƯA ĐẦY ĐỦ`. File 7z được giải nén theo từng lô ≤ `--max-size` và chỉ khi còn ngân sách, nên không
+  kết quả là chưa quét đầy đủ. File 7z được giải nén theo từng lô ≤ `--max-size` và chỉ khi còn ngân sách, nên không
   bao giờ nạp cả file 7z vào RAM.
 - **Hỗ trợ file có mật khẩu** (`--password`), và cảnh báo khi file thực thi bị khóa mật khẩu –
   thủ thuật phổ biến để né antivirus.
@@ -132,8 +132,18 @@ Ví dụ kết quả (file mẫu vô hại tạo trong lúc thử nghiệm):
   KẾT LUẬN: NGUY HIỂM – dấu hiệu: Keylogger (ghi phím), Stealer (đánh cắp dữ liệu), Trojan / ngụy trang, Worm (tự lây lan)
 ```
 
-**Mã thoát** (dùng được trong script/CI): `0` sạch · `1` đáng ngờ · `2` nguy hiểm · `3` lỗi.
-Nếu có phần không quét được (file quá lớn, có mật khẩu…), kết luận sẽ kèm `CHƯA ĐẦY ĐỦ` và JSON có `"complete": false`.
+**Bốn kết luận** và **mã thoát** (dùng được trong script/CI):
+
+| Kết luận | JSON `verdict` | Mã thoát | Ý nghĩa |
+|---|---|---|---|
+| SẠCH | `clean` | `0` | Đã kiểm tra **toàn bộ** nội dung và không thấy dấu hiệu nguy hiểm |
+| CHƯA QUÉT ĐỦ | `incomplete` | `4` | Không thấy dấu hiệu nguy hiểm, nhưng **có phần chưa kiểm tra được**: file có mật khẩu, file nén hỏng, định dạng chưa hỗ trợ (CAB, ISO, WIM, Zstandard…), engine lỗi/timeout, vượt giới hạn. **Không được coi là sạch** |
+| ĐÁNG NGỜ | `suspicious` | `1` | Có dấu hiệu cần xem lại |
+| NGUY HIỂM | `malicious` | `2` | Có dấu hiệu mạnh hoặc trùng mã độc đã biết |
+
+Mã `3` là lỗi (không đọc được file, lỗi ngoài dự kiến). Lỗi xử lý **không bao giờ** cho ra kết luận SẠCH.
+Khi vừa có dấu hiệu nguy hiểm vừa có phần chưa quét, kết luận theo dấu hiệu và kèm ghi chú `CHƯA ĐẦY ĐỦ`;
+JSON luôn có `"complete"` và danh sách `incomplete` ghi rõ từng phần chưa kiểm tra.
 
 ## Cách chấm điểm
 
@@ -226,8 +236,7 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
   ngắt giữa chừng.
 - Mọi lớp kiểm tra đọc **trọn nội dung** mỗi file (file 256 MB mất khoảng 25 giây). File con lớn hơn `--max-size`
   (mặc định 256 MB), file bị khóa mật khẩu hay lồng quá sâu thì **không quét được** và được đánh dấu rõ:
-  kết luận ghi `CHƯA ĐẦY ĐỦ`, còn báo cáo JSON có `"complete": false` kèm danh sách `incomplete`.
-  Khi dùng trong CI, nên kiểm tra cả trường `complete`, vì mã thoát `0` chỉ nói phần đã quét là sạch.
+  kết luận là `CHƯA QUÉT ĐỦ` (mã thoát `4`), không bao giờ là SẠCH.
 - ClamAV không quét file trên 2 GB. Nếu dùng `clamdscan`, hãy tự nâng `MaxFileSize`/`MaxScanSize` trong
   `clamd.conf` (mặc định chỉ 100 MB).
 - Mã băm chỉ bắt được **đúng** mẫu đã có trên MalwareBazaar: đổi một byte là mã băm khác. Đây là lớp bổ sung

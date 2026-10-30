@@ -10,11 +10,11 @@ from pathlib import Path
 from . import __version__, malwarebazaar
 from .extract import archive_kind
 from .rules import CATEGORIES, SEVERITY_NAME
-from .scanner import Scanner
+from .scanner import VERDICTS, Scanner
 
-LABEL = {"clean": "SẠCH", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
-COLOR = {"clean": "32", "suspicious": "33", "malicious": "31"}
-EXIT_CODE = {"clean": 0, "suspicious": 1, "malicious": 2}
+LABEL = {"clean": "SẠCH", "incomplete": "CHƯA QUÉT ĐỦ", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
+COLOR = {"clean": "32", "incomplete": "35", "suspicious": "33", "malicious": "31"}
+EXIT_CODE = {"clean": 0, "suspicious": 1, "malicious": 2, "incomplete": 4}
 
 
 def _targets(paths):
@@ -47,16 +47,18 @@ def _print_report(report, show_all, paint):
                 print(f"               {x.detail}")
     counts = {v: sum(1 for f in report.files if f.verdict == v) for v in LABEL}
     print(f"  Đã quét {len(report.files)} file: {counts['malicious']} nguy hiểm, "
-          f"{counts['suspicious']} đáng ngờ, {counts['clean']} sạch")
+          f"{counts['suspicious']} đáng ngờ, {counts['incomplete']} chưa quét đủ, {counts['clean']} sạch")
     for note in report.incomplete:
         print(paint(f"  ! Chưa kiểm tra được: {note}", "33"))
     verdict = report.verdict
     kinds = ", ".join(CATEGORIES.get(c, c) for c in report.categories)
-    partial = f" (CHƯA ĐẦY ĐỦ – {len(report.incomplete)} phần chưa kiểm tra)" if report.incomplete else ""
+    partial = (f" (CHƯA ĐẦY ĐỦ – {len(report.incomplete)} phần chưa kiểm tra)"
+               if report.incomplete and verdict != "incomplete" else "")
     print("  KẾT LUẬN: " + paint(LABEL[verdict] + partial, COLOR[verdict] + ";1")
           + (f" – dấu hiệu: {kinds}" if kinds else ""))
-    if verdict == "clean" and report.incomplete:
-        print("  (Phần đã quét không có dấu hiệu nguy hiểm, nhưng những phần ở trên chưa được kiểm tra.)")
+    if verdict == "incomplete":
+        print("  (Phần đã quét không có dấu hiệu nguy hiểm, nhưng những phần ở trên CHƯA được kiểm tra –"
+              " KHÔNG được coi là an toàn.)")
     elif verdict == "clean":
         print("  (Không phát hiện dấu hiệu nguy hiểm – không có nghĩa là chắc chắn an toàn.)")
 
@@ -65,7 +67,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="archiveguard",
         description="Quét file nén (ZIP, RAR, 7z, TAR, GZ…) tìm dấu hiệu trojan, keylogger, worm, ransomware…",
-        epilog="Mã thoát: 0 = sạch, 1 = đáng ngờ, 2 = nguy hiểm, 3 = lỗi.")
+        epilog="Mã thoát: 0 = sạch, 1 = đáng ngờ, 2 = nguy hiểm, 3 = lỗi, 4 = chưa quét đủ (không được coi là sạch).")
     ap.add_argument("paths", nargs="*", type=Path, help="file hoặc thư mục (thư mục: quét mọi file nén bên trong)")
     ap.add_argument("--update-hashes", action="store_true",
                     help="tải/cập nhật mã băm mã độc theo họ từ MalwareBazaar vào cache trên máy")
@@ -127,6 +129,10 @@ def main(argv=None) -> int:
             print(f"\nLỗi: không đọc được {path}: {e.strerror or e}", file=sys.stderr)
             failed = True
             continue
+        except Exception as e:  # lỗi ngoài dự kiến: báo lỗi (mã 3), tuyệt đối không để lọt thành "sạch"
+            print(f"\nLỗi khi quét {path}: {type(e).__name__}: {e}", file=sys.stderr)
+            failed = True
+            continue
         reports.append(report)
         _print_report(report, args.all, paint)
 
@@ -137,5 +143,7 @@ def main(argv=None) -> int:
                                          "reports": [r.to_dict() for r in reports]},
                                         ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\nĐã ghi báo cáo JSON: {args.json}")
-    code = max((EXIT_CODE[r.verdict] for r in reports), default=0)
-    return 3 if failed and code == 0 else code
+    worst = max((r.verdict for r in reports), key=VERDICTS.index, default="clean")
+    if failed and worst in ("clean", "incomplete"):
+        return 3
+    return EXIT_CODE[worst]

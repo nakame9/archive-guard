@@ -50,6 +50,20 @@ class EncryptedArchive(ArchiveError):
     """Cả danh sách file cũng bị mã hóa – không xem được gì nếu thiếu mật khẩu."""
 
 
+# Định dạng CHỨA file nhưng chưa mở được: nội dung bên trong không được kiểm tra đầy đủ
+UNSUPPORTED = [
+    (0, b"MSCF", "CAB"), (0, b"\x28\xb5\x2f\xfd", "Zstandard"), (0, b"MSWIM", "WIM"),
+    (0, b"\x04\x22\x4d\x18", "LZ4"), (0, b"LZIP", "Lzip"), (0, b"\x60\xea", "ARJ"),
+    (0, b"conectix", "VHD"), (0, b"vhdxfile", "VHDX"), (0, b"xar!", "XAR/PKG"),
+    (0x8001, b"CD001", "ISO"), (0x8801, b"CD001", "ISO"), (0x9001, b"CD001", "ISO"),
+    (2, b"-lh", "LZH"), (0, b"\xef\xbe\xad\xdeNullsoftInst", "NSIS"),
+]
+
+
+def unsupported_container(data: bytes) -> str | None:
+    return next((name for off, magic, name in UNSUPPORTED if data[off:off + len(magic)] == magic), None)
+
+
 def archive_kind(head: bytes) -> str | None:
     for magic, kind in MAGIC:
         if head.startswith(magic):

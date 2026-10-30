@@ -252,10 +252,46 @@ def test_payload_in_middle_of_large_file():
 def test_skipped_content_is_marked_partial(tmp_path, capsys):
     path = tmp_path / "big.zip"
     path.write_bytes(make_zip({"big.bin": os.urandom(2 << 20)}))
-    assert main([str(path), "--no-clamav", "--max-size", "1", "--json", str(tmp_path / "r.json")]) == 0
-    assert "CHƯA ĐẦY ĐỦ" in capsys.readouterr().out
+    assert main([str(path), "--no-clamav", "--max-size", "1", "--json", str(tmp_path / "r.json")]) == 4
+    assert "KẾT LUẬN: CHƯA QUÉT ĐỦ" in capsys.readouterr().out
     report = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))["reports"][0]
-    assert report["complete"] is False and report["incomplete"]
+    assert report["verdict"] == "incomplete" and report["complete"] is False and report["incomplete"]
+
+
+@pytest.mark.parametrize("name, data", [
+    ("zip mật khẩu", lambda: _set_encrypted_flag(make_zip({"hoadon.txt": b"x"}))),
+    ("file nén hỏng", lambda: make_zip({"a.txt": b"x" * 100})[:60]),
+    ("CAB chưa hỗ trợ", lambda: make_zip({"setup.cab": b"MSCF" + bytes(200)})),
+    ("ISO chưa hỗ trợ", lambda: make_zip({"disk.bin": bytes(0x8001) + b"CD001" + bytes(100)})),
+])
+def test_unchecked_content_is_never_clean(name, data):
+    report = scan(data())
+    assert report.verdict == "incomplete", name
+    assert report.incomplete
+
+
+def test_engine_error_is_incomplete_not_clean_or_crash(monkeypatch):
+    from archive_guard import engines
+
+    def broken(*a):
+        raise RuntimeError("yara timeout")
+
+    monkeypatch.setattr(engines, "yara_scan", broken)
+    report = scan(make_zip({"a.txt": b"hi"}))
+    assert report.verdict == "incomplete"
+    assert any("YARA lỗi" in x for x in report.incomplete)
+    assert scan(make_zip({"invoice.pdf.exe": FAKE_EXE})).verdict == "suspicious"  # heuristic vẫn chạy
+
+
+def test_cli_unexpected_crash_is_error_not_clean(tmp_path, monkeypatch):
+    from archive_guard import scanner as sc
+
+    def crash(self, path):
+        raise ValueError("lỗi ngoài dự kiến")
+
+    monkeypatch.setattr(sc.Scanner, "scan_path", crash)
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    assert main([str(tmp_path / "a.zip"), "--no-clamav"]) == 3
 
 
 # --- Ngân sách tài nguyên: kiểm thử đối kháng bằng giới hạn nhỏ + dữ liệu vô hại -----------------

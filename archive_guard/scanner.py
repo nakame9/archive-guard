@@ -7,13 +7,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import engines, malwarebazaar, rules
-from .extract import ARCHIVE_KINDS, ArchiveError, EncryptedArchive, archive_kind, iter_members
+from .extract import (ARCHIVE_KINDS, ArchiveError, EncryptedArchive, archive_kind, iter_members,
+                      unsupported_container)
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
 DATA_DIR = Path(__file__).parent / "data"
 MB = 1 << 20
 BOMB_MIN_SIZE = 50 * MB  # chỉ xét tỷ lệ nén với file con lớn, tránh báo nhầm file text nhỏ
-VERDICTS = ("clean", "suspicious", "malicious")
+# "incomplete": không phát hiện gì NHƯNG có phần chưa kiểm tra được → không được coi là sạch
+VERDICTS = ("clean", "incomplete", "suspicious", "malicious")
 
 
 def score_and_verdict(findings) -> tuple[int, str]:
@@ -43,7 +45,8 @@ class FileResult:
 
     @property
     def verdict(self):
-        return score_and_verdict(self.findings)[1]
+        v = score_and_verdict(self.findings)[1]
+        return "incomplete" if v == "clean" and self.note else v
 
     def to_dict(self):
         return {"path": self.path, "kind": self.kind, "size": self.size, "sha256": self.sha256,
@@ -59,7 +62,8 @@ class Report:
 
     @property
     def verdict(self):
-        return max((f.verdict for f in self.files), key=VERDICTS.index, default="clean")
+        v = max((f.verdict for f in self.files), key=VERDICTS.index, default="clean")
+        return "incomplete" if v == "clean" and self.incomplete else v
 
     @property
     def categories(self):
@@ -127,7 +131,8 @@ class Scanner:
         if self.use_clamav:
             found = engines.clamav_scan(path)
             if found is None:
-                report.incomplete.append("ClamAV không chạy được")
+                report.incomplete.append("ClamAV không chạy được (thiếu cơ sở dữ liệu? chạy freshclam, "
+                                         "hoặc dùng --no-clamav)")
             else:
                 report.files[0].findings += found
         return report
@@ -155,8 +160,15 @@ class Scanner:
                 "HASH.KNOWN_BAD", CRITICAL, malwarebazaar.CATEGORY_OF.get(family.lower(), "known_malware"),
                 "Trùng mã băm với mẫu mã độc đã biết" + (f": {family}" if family else ""), engine="hash"))
         if data is not None:
-            res.findings += rules.check_content(data, kind, name)
-            res.findings += engines.yara_scan(self.yara, data)
+            for engine, run in (("heuristic", lambda: rules.check_content(data, kind, name)),
+                                ("YARA", lambda: engines.yara_scan(self.yara, data))):
+                try:
+                    res.findings += run()
+                except Exception as e:  # engine lỗi/timeout KHÔNG được coi là sạch
+                    self._not_checked(res, report, display, f"{engine} lỗi: {type(e).__name__}: {e}")
+            fmt = unsupported_container(data) if kind not in ARCHIVE_KINDS else None
+            if fmt:
+                self._not_checked(res, report, display, f"định dạng {fmt} chưa được giải nén, chỉ quét dạng thô")
         if kind in ARCHIVE_KINDS:
             if depth >= self.max_depth:
                 res.findings.append(Finding("ARCHIVE.TOO_DEEP", MEDIUM, "archive_abuse",
@@ -164,6 +176,11 @@ class Scanner:
                 report.incomplete.append(f"{display}: lồng quá sâu")
             else:
                 self._walk(kind, src, name, display, depth, res, report, budget)
+
+    @staticmethod
+    def _not_checked(res, report, display, why):
+        res.note = "; ".join(filter(None, [res.note, why]))
+        report.incomplete.append(f"{display}: {why}")
 
     def _budget(self):
         """Ngân sách dùng chung cho MỌI tầng lồng nhau của một lần quét."""
@@ -225,8 +242,8 @@ class Scanner:
         except EncryptedArchive as e:
             res.findings.append(Finding("ARCHIVE.ENCRYPTED", MEDIUM, "evasion",
                                         "Mã hóa cả danh sách file – không xem được bên trong", str(e)))
-            report.incomplete.append(f"{display}: {e}")
+            self._not_checked(res, report, display, str(e))
         except ArchiveError as e:
             res.findings.append(Finding("ARCHIVE.CORRUPT", LOW, "archive_abuse",
                                         "File nén hỏng hoặc không đọc được", str(e)))
-            report.incomplete.append(f"{display}: {e}")
+            self._not_checked(res, report, display, f"không đọc được: {e}")
