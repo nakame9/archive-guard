@@ -58,8 +58,50 @@ biệt được khả năng.
 - **Thiên lệch chọn mẫu:** chỉ có gói lập trình (PyPI/npm), chưa có phần mềm người dùng phổ thông (game, bộ cài
   ứng dụng, tài liệu Office/PDF), vốn là thứ hay được tải về dạng file nén.
 - **n = 109:** khoảng tin cậy còn rộng; muốn cận trên dưới 1% cần khoảng 400 mẫu sạch liên tiếp không bị gắn cờ.
-- **Chưa tinh chỉnh luật theo bộ này:** các lỗi luật ở trên **chưa sửa** để số liệu không bị "học thuộc đề".
-  Khi sửa, phải đo lại trên một **bộ sạch mới** chưa từng dùng để chỉnh luật.
+- **Bộ này đã được dùng để chỉnh luật** ở vòng 2 bên dưới, nên số liệu "sau khi sửa" trên bộ này bị thiên lệch.
+  Số liệu khách quan là số đo trên bộ kiểm tra riêng.
+
+## Vòng 2 – Sửa 2 lỗi luật, kiểm tra trên bộ chưa từng dùng (2026-10-31, bản 0.8.0)
+
+**Hai thay đổi** (chỉ hai, đã chọn từ vòng 1 trước khi nhìn bộ kiểm tra):
+
+1. `BACKDOOR.KNOWN_RAT`: tên họ mã độc chỉ được tính khi **đứng đầu một từ** (ký tự đứng trước không phải chữ/số;
+   kiểm tra cả ASCII lẫn UTF-16 và cả ở ranh giới giữa hai khúc quét). Phía sau tên được tự do (`DcRatBuilder`).
+2. `RANSOM.NOTE`: phải có **cả lời đòi tiền chuộc** ("your files have been encrypted", "decrypt your files"…)
+   **lẫn cách trả tiền/liên lạc** (bitcoin, monero, .onion, Tor, decryptor…). Trước đây hai chuỗi bất kỳ trong một
+   danh sách chung là đủ, nên `.onion` + "decryption key" trong thư viện mạng của esbuild bị gắn nhầm.
+
+**Phương pháp:** dựng một **bộ kiểm tra mới** gồm 81 gói ([`benchmark/holdout-corpus-1.txt`](../benchmark/holdout-corpus-1.txt),
+không trùng gói nào với bộ cũ), đo nó bằng **luật cũ trước**, rồi mới đo bằng luật mới. Bộ kiểm tra không được
+dùng để chọn hay chỉnh thay đổi nào.
+
+| Bộ dữ liệu | Nhóm | Trước (0.7.0) | Sau (0.8.0) |
+|---|---|---|---|
+| **Bộ kiểm tra mới** (khách quan) | Thông dụng, 71 gói | 11,3% (5,8–20,7%) | **4,2%** (1,4–11,7%) |
+| | Thông dụng, gắn NGUY HIỂM | 0% | 0% (0–5,1%) |
+| | Hai mặt, 10 gói | 30% | 30% |
+| Bộ cũ (đã dùng để chỉnh, thiên lệch) | Thông dụng, 93 gói | 8,6% | 6,5% |
+| | Hai mặt, 16 gói | 62,5% | 62,5% |
+
+Kết quả thô: [`results-2026-10-31-holdout-before.md`](../benchmark/results-2026-10-31-holdout-before.md),
+[`…-holdout-after.md`](../benchmark/results-2026-10-31-holdout-after.md),
+[`…-benign-after.md`](../benchmark/results-2026-10-31-benign-after.md).
+
+**Đọc kết quả cho đúng:**
+
+- Trên bộ kiểm tra, **5/5 ca `KNOWN_RAT` biến mất** (uv, turbo, rspack, tauri, jiter: đều là file nhị phân Rust
+  có chuỗi ghép kiểu `…ed` + `crates`). Đây là bằng chứng chính, vì cơ chế khớp đúng loại lỗi đã sửa.
+- Với 71 mẫu, khoảng tin cậy trước và sau **vẫn chồng lên nhau**, nên riêng con số chưa đủ khẳng định về mặt thống kê.
+- **Recall chưa đo** (xem Kết quả 2). Thay đổi chỉ được kiểm chứng bằng test: các mẫu thử có tên họ mã độc thật
+  và thư đòi tiền chuộc thật vẫn bị bắt; một kiểu thư mới ("Send Monero to get the decryptor") trước bị sót, giờ bắt được.
+
+**Còn tồn tại, để dành cho vòng sau** (cần một bộ kiểm tra thứ ba):
+
+| Mẫu | Luật | Nguyên nhân |
+|---|---|---|
+| ruff (bộ cũ) | `BACKDOOR.KNOWN_RAT` | Chuỗi `#\d` + `crates` → `\dcrates`: `dcrat` đứng sau dấu `\` nên vẫn là "đầu từ". Tên `DcRat` quá ngắn; sửa triệt để cần so khớp phân biệt hoa/thường, có rủi ro làm sót mã độc nên chờ có số liệu recall |
+| pip, virtualenv (bộ kiểm tra) | `BACKDOOR.REVERSE_SHELL` | `pty.spawn(` trong một đoạn ví dụ của thư viện `rich` mà pip đóng gói kèm. Cùng kiểu yếu điểm: luật mức HIGH dựa vào **một chuỗi đơn lẻ** |
+| cmake, pygame, Qt, wxPython | `KEYLOG.API` | Thư viện giao diện dùng đúng tổ hợp API của keylogger; giới hạn bản chất của heuristic |
 
 ## Kết quả 2 – Phát hiện mã độc thật (recall): **CHƯA ĐO**
 

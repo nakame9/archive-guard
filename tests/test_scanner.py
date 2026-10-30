@@ -455,6 +455,44 @@ def test_clamav_timeout_does_not_fall_back(monkeypatch):
     assert len(calls) == 1 and calls[0] <= 3  # không thử tiếp clamscan sau khi clamdscan hết giờ
 
 
+# --- Hồi quy cho 2 lỗi luật tìm ra bằng benchmark (docs/BENCHMARK.md) ------------------------------
+
+@pytest.mark.parametrize("blob, hit", [
+    (b"SystemVirtualVendoredcrates\\ruff_source_file\\src\\lib.rs", False),  # chuỗi ghép của Rust (ruff)
+    ("overflowedcrates\\x".encode("utf-16-le"), False),
+    (b"\x00DcRat.exe\x00", True),
+    (b"[DcRatBuilder] connected", True),  # phía sau tên họ được tự do
+    (b"\x00AsyncRAT\x00", True),
+    ("Quasar.Client.Config".encode("utf-16-le"), True),
+])
+def test_family_names_need_word_start(blob, hit):
+    found = "BACKDOOR.KNOWN_RAT" in rules_of(scan(make_zip({"a.exe": FAKE_EXE + b"\x00" + blob})))
+    assert found == hit
+
+
+def test_family_name_at_chunk_boundary_keeps_context(monkeypatch):
+    from archive_guard import rules
+    monkeypatch.setattr(rules, "_CHUNK", 64)
+    # "dcrat" bắt đầu đúng ở đầu khúc thứ hai, chữ "e" đứng trước nằm ở khúc thứ nhất → vẫn là báo nhầm
+    data = b"x" * (64 - 1) + b"edcrates"
+    assert "dcrat" not in rules._find_strings(data)
+    assert "dcrat" in rules._find_strings(b"x" * 63 + b" dcrat")
+
+
+@pytest.mark.parametrize("text, hit", [
+    # thư đòi tiền chuộc thật: có lời đòi + cách trả tiền/liên lạc
+    (b"All your files have been encrypted! To decrypt your files pay 0.05 Bitcoin. "
+     b"Install Tor Browser and open http://abc.onion", True),
+    (b"YOUR FILES ARE ENCRYPTED. Send Monero to get the decryptor.", True),
+    # chuỗi trong thư viện mạng/TLS (esbuild): không có lời đòi tiền chuộc
+    (b"dnsdomaingophertelnetreturn.local.onionip tls: unsupported decryption key type (%T)", False),
+    (b"Bitcoin wallet library: export decryption key", False),
+])
+def test_ransom_note_needs_demand_and_payment(text, hit):
+    found = "RANSOM.NOTE" in rules_of(scan(make_zip({"readme.exe": FAKE_EXE + text})))
+    assert found == hit
+
+
 def test_cli_exit_codes_and_json(tmp_path):
     (tmp_path / "clean.zip").write_bytes(make_zip({"a.txt": b"hi"}))
     (tmp_path / "bad.zip").write_bytes(make_zip({"invoice.pdf.exe": FAKE_EXE}))

@@ -155,8 +155,8 @@ JSON luôn có `"complete"` và danh sách `incomplete` ghi rõ từng phần ch
   nên `rules_version` cũng đổi hằng tuần, đó là điều đúng vì khả năng phát hiện đã đổi.
 
 ```json
-{"schema_version": 1, "version": "0.7.0", "rules_version": "4fab7dd12a35",
- "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "4fab7dd12a35"},
+{"schema_version": 1, "version": "0.8.0", "rules_version": "2e803535739a",
+ "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
 ```
 
@@ -218,12 +218,13 @@ tests/test_scanner.py   # test – mọi mẫu thử được tạo trong bộ n
 
 ## Độ chính xác đã đo
 
-Chi tiết, phương pháp và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md). Tóm tắt (bản 0.4.0, 109 gói phần mềm sạch thật):
+Chi tiết, phương pháp và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md). Tóm tắt bản 0.8.0, đo trên
+**bộ kiểm tra 81 gói chưa từng dùng để chỉnh luật** (số trong ngoặc là bản 0.7.0 trước khi sửa 2 lỗi luật):
 
 | Phần mềm sạch | Bị gắn ĐÁNG NGỜ | Bị gắn NGUY HIỂM |
 |---|---|---|
-| Thông dụng (93 gói) | 8,6% | 0% |
-| Công cụ hai mặt: hook bàn phím, tiêm tiến trình, kiểm thử xâm nhập (16 gói) | 62,5% | 6,2% |
+| Thông dụng (71 gói) | 4,2% (11,3%) | 0% (0%) |
+| Công cụ hai mặt: hook bàn phím, tiêm tiến trình, kiểm thử xâm nhập (10 gói) | 30% (30%) | 0% (0%) |
 
 **Khả năng phát hiện mã độc thật (recall) chưa được đo.** docs/BENCHMARK.md có quy trình để tự đo trong máy ảo
 bằng công cụ `python -m archive_guard.benchmark`.

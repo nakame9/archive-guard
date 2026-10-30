@@ -182,9 +182,12 @@ _INDICATORS = [
     ("RANSOM.KILL_BACKUP", HIGH, "ransomware", "Xóa shadow copy/bản sao lưu – hành vi điển hình của ransomware",
      [["vssadmin delete shadows", "vssadmin.exe delete shadows", "shadowcopy delete",
        "wbadmin delete catalog", "recoveryenabled no", "bootstatuspolicy ignoreallfailures"]], 1, 1),
+    # Phải có CẢ lời đòi tiền chuộc LẪN cách trả tiền/liên lạc: ".onion" hay "decryption key" đứng một mình
+    # là chuỗi bình thường trong thư viện mạng/TLS (vd. esbuild viết bằng Go)
     ("RANSOM.NOTE", HIGH, "ransomware", "Chứa nội dung đòi tiền chuộc",
-     [["your files have been encrypted", "your files are encrypted", "decrypt your files",
-       "decryption key", "pay the ransom", "bitcoin wallet", ".onion", "tor browser"]], 1, 2),
+     [["your files have been encrypted", "your files are encrypted", "all your files", "decrypt your files",
+       "recover your files", "pay the ransom", "files have been locked"],
+      ["bitcoin", "monero", ".onion", "tor browser", "decryption key", "decryptor", "btc wallet"]], 2, 2),
     ("STEAL.BROWSER", HIGH, "stealer", "Đọc mật khẩu/cookie đã lưu của trình duyệt",
      [["\\Google\\Chrome\\User Data", "\\Microsoft\\Edge\\User Data", "\\Mozilla\\Firefox\\Profiles",
        "Login Data", "logins.json", "key4.db", "encrypted_key", "CryptUnprotectData"]], 1, 3),
@@ -211,6 +214,11 @@ _INDICATORS = [
      [["\\ADMIN$", "\\C$\\", "\\IPC$", "NetShareEnum", "WNetEnumResourceA", "WNetEnumResourceW",
        "NetServerEnum", "WNetAddConnection2"]], 1, 2),
 ]
+# Tên họ mã độc chỉ tính khi đứng ĐẦU một từ: trình biên dịch Rust ghép chuỗi sát nhau nên
+# "Vendored" + "crates" tạo ra "…dcrat…" (báo nhầm ở ruff, uv, turbo…). Phía sau thì cho tự do (DcRatBuilder).
+_WORD_START_RULES = {"BACKDOOR.KNOWN_RAT"}
+_WORD_START = {x.lower() for r, *_, groups, _mg, _mh in _INDICATORS if r in _WORD_START_RULES
+               for g in groups for x in g}
 _INDICATORS = [(r, s, c, t, [frozenset(x.lower() for x in g) for g in groups], mg, mh)
                for r, s, c, t, groups, mg, mh in _INDICATORS]
 _LOOKUP = {}  # biến thể đã chuyển chữ thường (ASCII / UTF-16LE) -> chuỗi gốc
@@ -218,6 +226,10 @@ for *_, _groups, _mg, _mh in _INDICATORS:
     for _s in set().union(*_groups):
         _LOOKUP[_s.encode()] = _s
         _LOOKUP[_s.encode("utf-16-le")] = _s
+_BOUNDED = {}  # biến thể cần ranh giới đầu từ -> regex kiểm tra ký tự đứng trước không phải chữ/số
+for _s in _WORD_START:
+    _BOUNDED[_s.encode()] = re.compile(rb"(?<![a-z0-9])" + re.escape(_s.encode()))
+    _BOUNDED[_s.encode("utf-16-le")] = re.compile(rb"(?<![a-z0-9]\x00)" + re.escape(_s.encode("utf-16-le")))
 
 INDICATOR_KINDS = {"pe", "elf", "macho", "script", "lnk", "unknown"}
 _CHUNK = 8 << 20  # quét từng khúc 8 MB để bộ nhớ không tăng gấp đôi với file lớn
@@ -228,8 +240,9 @@ def _find_strings(data: bytes) -> set[str]:
     """Tìm mọi chỉ dấu trong TOÀN BỘ dữ liệu (~10 giây cho 100 MB)."""
     pending, found = dict(_LOOKUP), set()
     for start in range(0, len(data), _CHUNK):
-        low = data[max(0, start - _OVERLAP): start + _CHUNK].lower()  # bytes.lower() chỉ đổi A-Z
-        for v in [v for v in pending if v in low]:
+        # lùi thêm 2 byte để kiểm tra được ký tự đứng trước chuỗi (UTF-16 dùng 2 byte/ký tự)
+        low = data[max(0, start - _OVERLAP - 2): start + _CHUNK].lower()  # bytes.lower() chỉ đổi A-Z
+        for v in [v for v in pending if v in low and (v not in _BOUNDED or _BOUNDED[v].search(low))]:
             found.add(pending.pop(v))
         if not pending:
             break
