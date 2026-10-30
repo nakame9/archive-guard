@@ -382,6 +382,79 @@ def test_benchmark_metrics(tmp_path):
     assert "d.zip" in md and "b.zip" in md
 
 
+# --- Hợp đồng JSON (schema_version 1): chỉ được THÊM trường, không xóa/đổi tên --------------------
+
+SCHEMA_V1 = {
+    "top": {"schema_version", "version", "rules_version", "rules_components", "engines", "reports"},
+    "report": {"target", "verdict", "categories", "complete", "incomplete", "files"},
+    "file": {"path", "kind", "size", "sha256", "score", "verdict", "note", "findings"},
+    "finding": {"rule", "severity", "category", "title", "detail", "engine"},
+}
+
+
+def test_json_schema_v1_is_stable(tmp_path):
+    (tmp_path / "a.zip").write_bytes(make_zip({"invoice.pdf.exe": FAKE_EXE}))
+    out = tmp_path / "r.json"
+    main([str(tmp_path / "a.zip"), "--no-clamav", "--json", str(out)])
+    d = json.loads(out.read_text(encoding="utf-8"))
+    assert d["schema_version"] == 1
+    report = d["reports"][0]
+    file = next(f for f in report["files"] if f["findings"])
+    for part, obj in [("top", d), ("report", report), ("file", file), ("finding", file["findings"][0])]:
+        assert SCHEMA_V1[part] <= set(obj), f"thiếu trường {SCHEMA_V1[part] - set(obj)} ở {part}"
+    assert report["verdict"] in {"clean", "incomplete", "suspicious", "malicious"}
+    assert set(d["rules_components"]) == {"heuristic", "yara", "hashes", "all"}
+
+
+def test_rules_version_follows_rule_content(tmp_path):
+    from archive_guard.scanner import rules_fingerprint
+    base = Scanner(use_clamav=False)
+    assert Scanner(use_clamav=False).rules_version == base.rules_version  # ổn định giữa các lần chạy
+    extra = tmp_path / "more.txt"
+    extra.write_text("a" * 64 + " Demo\n")
+    with_hash = Scanner(use_clamav=False, hash_files=[extra])
+    assert with_hash.rules_version != base.rules_version
+    assert with_hash.rules_components["heuristic"] == base.rules_components["heuristic"]
+    lf, crlf = tmp_path / "lf.yar", tmp_path / "crlf.yar"
+    lf.write_bytes(b"rule A {\n condition: true\n}\n")
+    crlf.write_bytes(b"rule A {\r\n condition: true\r\n}\r\n")
+    assert rules_fingerprint({}, [lf]) == rules_fingerprint({}, [crlf])  # checkout Windows vẫn cùng phiên bản
+
+
+def test_engines_never_exceed_scan_timeout(monkeypatch, tmp_path):
+    from archive_guard import engines, scanner as sc
+    seen = {}
+    monkeypatch.setattr(engines, "find_clamav", lambda: "clamscan")
+    monkeypatch.setattr(engines, "clamav_scan", lambda path, timeout: seen.setdefault("clamav", timeout) and [])
+    monkeypatch.setattr(engines, "yara_scan", lambda c, d, timeout: seen.setdefault("yara", timeout) and [])
+    p = tmp_path / "a.zip"
+    p.write_bytes(make_zip({"a.txt": b"hi"}))
+    Scanner(timeout=5).scan_path(p)
+    assert 0 < seen["clamav"] <= 5 and 1 <= seen["yara"] <= 5
+    scanner = Scanner(timeout=5)
+    clock = iter([0.0] + [1e9] * 100)  # lần đầu: đặt mốc; các lần sau: đã hết giờ khi tới lượt ClamAV
+    monkeypatch.setattr(sc.time, "monotonic", lambda: next(clock))
+    seen.clear()
+    report = scanner.scan_path(p)
+    assert "clamav" not in seen
+    assert report.verdict != "clean" and any("ClamAV" in x for x in report.incomplete)
+
+
+def test_clamav_timeout_does_not_fall_back(monkeypatch):
+    import subprocess
+    from archive_guard import engines
+    calls = []
+
+    def slow(cmd, **kw):
+        calls.append(kw["timeout"])
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+    monkeypatch.setattr(engines.shutil, "which", lambda name: name)
+    monkeypatch.setattr(engines.subprocess, "run", slow)
+    assert engines.clamav_scan("x.zip", timeout=3) is None
+    assert len(calls) == 1 and calls[0] <= 3  # không thử tiếp clamscan sau khi clamdscan hết giờ
+
+
 def test_cli_exit_codes_and_json(tmp_path):
     (tmp_path / "clean.zip").write_bytes(make_zip({"a.txt": b"hi"}))
     (tmp_path / "bad.zip").write_bytes(make_zip({"invoice.pdf.exe": FAKE_EXE}))

@@ -15,11 +15,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import platform
 import sys
 import time
 from collections import Counter
 from pathlib import Path
 
+from . import __version__
 from .scanner import Scanner, score_and_verdict
 
 LEVEL = {"clean": 0, "suspicious": 1, "malicious": 2}
@@ -93,7 +96,14 @@ def run(malicious, benign, scanner: Scanner, log=print) -> dict:
         log(f"  [{i}/{len(samples)}] {label:<9} {rows[-1]['verdicts']['Tất cả']:<10} {path.name}")
     active = [n for n in LAYERS if any(LEVEL[r["verdicts"][n]] for r in rows) or n in
               ("Tất cả", "Không dùng mã băm", "Chỉ heuristic")]
-    result = {"engines": scanner.engines, "samples": len(rows),
+    times = sorted(r["seconds"] for r in rows) or [0]
+    result = {"schema_version": 1, "archiveguard_version": __version__,
+              "rules_version": scanner.rules_version, "rules_components": scanner.rules_components,
+              "platform": {"os": platform.platform(), "python": platform.python_version(),
+                           "machine": platform.machine(), "cpu_count": os.cpu_count()},
+              "seconds": {"median": times[len(times) // 2], "p95": times[min(len(times) - 1, int(len(times) * 0.95))],
+                          "max": times[-1]},
+              "engines": scanner.engines, "samples": len(rows),
               "malicious": sum(r["label"] == "malicious" for r in rows),
               "benign": sum(r["label"] == "benign" for r in rows),
               "incomplete": sum(not r["complete"] for r in rows),
@@ -124,8 +134,13 @@ def _pct(x, ci=None):
 
 
 def to_markdown(res: dict) -> str:
-    out = [f"Mẫu: {res['samples']} ({res['malicious']} độc, {res['benign']} sạch); "
-           f"quét chưa đầy đủ: {res['incomplete']}", ""]
+    t = res["seconds"]
+    out = [f"ArchiveGuard {res['archiveguard_version']} · luật `{res['rules_version']}` "
+           f"({', '.join(f'{k} {v}' for k, v in res['rules_components'].items() if k != 'all')}) · "
+           f"{res['platform']['os']}, Python {res['platform']['python']}, {res['platform']['cpu_count']} CPU", "",
+           f"Mẫu: {res['samples']} ({res['malicious']} độc, {res['benign']} sạch); "
+           f"quét chưa đầy đủ: {res['incomplete']}; thời gian/mẫu: trung vị {t['median']} s, "
+           f"p95 {t['p95']} s, max {t['max']} s", ""]
     for t, title in (("suspicious", "Dương tính khi kết luận ≥ ĐÁNG NGỜ"),
                      ("malicious", "Dương tính khi kết luận = NGUY HIỂM")):
         out += [f"### {title}", "",

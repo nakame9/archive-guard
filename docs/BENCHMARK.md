@@ -13,6 +13,9 @@ python -m archive_guard.benchmark --malicious mau_doc/ --benign phan_mem_sach/ -
   (`mau_doc/AgentTesla/…`) hoặc nhóm phần mềm sạch (`phan_mem_sach/thong-dung/…`).
 - Kết quả: precision, recall, F1, tỷ lệ báo nhầm (FPR) ở hai ngưỡng (≥ ĐÁNG NGỜ và = NGUY HIỂM),
   recall theo họ, FPR theo nhóm, **danh sách từng ca báo nhầm và bỏ sót** kèm luật gây ra, xuất ra `.md` và `.json`.
+- Mỗi kết quả ghi kèm phiên bản ArchiveGuard, `rules_version` (và từng thành phần), hệ điều hành, phiên bản
+  Python, số CPU, thời gian trung vị/p95/max mỗi mẫu. Chỉ so sánh hai lần đo có cùng thành phần luật mà bạn
+  không cố ý thay đổi.
 - Kết quả được tách theo **lớp phát hiện**. Dòng **"Không dùng mã băm"** mô phỏng mã độc *mới*, chưa có trong
   danh sách mã băm. Đây là dòng phản ánh đúng năng lực heuristic, vì mẫu lấy từ MalwareBazaar gần như chắc chắn
   đã nằm trong danh sách mã băm, khiến dòng "Tất cả" cao một cách tự nhiên.

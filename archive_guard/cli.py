@@ -14,6 +14,8 @@ from .scanner import VERDICTS, Scanner
 
 LABEL = {"clean": "SẠCH", "incomplete": "CHƯA QUÉT ĐỦ", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
 COLOR = {"clean": "32", "incomplete": "35", "suspicious": "33", "malicious": "31"}
+# Tăng khi đổi tên/xóa/đổi nghĩa một trường JSON; chỉ THÊM trường mới thì giữ nguyên
+SCHEMA_VERSION = 1
 EXIT_CODE = {"clean": 0, "suspicious": 1, "malicious": 2, "incomplete": 4}
 
 
@@ -119,7 +121,8 @@ def main(argv=None) -> int:
                       max_total_mb=args.max_total, timeout=args.timeout,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)
-    print(f"ArchiveGuard {__version__} | " + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items()))
+    print(f"ArchiveGuard {__version__} | luật {scanner.rules_version} | "
+          + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items()))
 
     reports, failed = [], False
     for path in _targets(args.paths):
@@ -139,7 +142,10 @@ def main(argv=None) -> int:
     if not reports and not failed:
         print("Không tìm thấy file nén nào để quét.")
     if args.json:
-        args.json.write_text(json.dumps({"version": __version__, "engines": scanner.engines,
+        args.json.write_text(json.dumps({"schema_version": SCHEMA_VERSION, "version": __version__,
+                                         "rules_version": scanner.rules_version,
+                                         "rules_components": scanner.rules_components,
+                                         "engines": scanner.engines,
                                          "reports": [r.to_dict() for r in reports]},
                                         ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\nĐã ghi báo cáo JSON: {args.json}")

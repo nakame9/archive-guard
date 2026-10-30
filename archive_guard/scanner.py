@@ -88,6 +88,32 @@ def _digests(src) -> dict:
     return {k: h.hexdigest() for k, h in hs.items()}
 
 
+def _normalized(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n")  # Git trên Windows có thể đổi xuống dòng → cùng luật, cùng phiên bản
+
+
+def rules_fingerprint(hashes: dict, yara_files) -> dict:
+    """Phiên bản bộ luật tự sinh từ NỘI DUNG luật: không phải nhớ tăng số bằng tay.
+
+    heuristic = rules.py + scanner.py (chỉ dấu, ngưỡng điểm); yara = nội dung các file luật đã nạp;
+    hashes = danh sách mã băm kèm tên họ. Đổi bất kỳ phần nào → phiên bản đổi.
+    """
+    def h(parts):
+        d = hashlib.sha256()
+        for p in parts:
+            d.update(hashlib.sha256(p).digest())
+        return d.hexdigest()[:12]
+
+    here = Path(__file__).parent
+    parts = {
+        "heuristic": h(_normalized((here / f).read_bytes()) for f in ("rules.py", "scanner.py")),
+        "yara": h(sorted(hashlib.sha256(_normalized(Path(f).read_bytes())).digest() for f in yara_files)),
+        "hashes": h([("\n".join(f"{k} {v}" for k, v in sorted(hashes.items()))).encode()]),
+    }
+    parts["all"] = h([v.encode() for v in parts.values()])
+    return parts
+
+
 class Scanner:
     def __init__(self, *, passwords=(), max_depth=5, max_file_mb=256, max_total_mb=4096,
                  max_files=20000, max_ratio=100, timeout=300, hash_files=(), yara_paths=(),
@@ -105,8 +131,8 @@ class Scanner:
         # data/*.txt: known_bad.txt (EICAR) + malwarebazaar.txt do GitHub Actions cập nhật hằng tuần
         self.hashes = rules.load_hashes([*sorted(DATA_DIR.glob("*.txt")), *([cache] if cache.exists() else []),
                                          *hash_files])
-        self.yara, yara_status = (engines.load_yara([DATA_DIR / "rules", *yara_paths])
-                                  if use_yara else ([], "tắt"))
+        self.yara, yara_status, yara_files = (engines.load_yara([DATA_DIR / "rules", *yara_paths])
+                                              if use_yara else ([], "tắt", []))
         self.use_clamav = use_clamav and engines.find_clamav() is not None
         self.engines = {
             "heuristic": "bật",
@@ -114,6 +140,8 @@ class Scanner:
             "yara": yara_status,
             "clamav": "bật" if self.use_clamav else ("tắt" if not use_clamav else "chưa cài"),
         }
+        self.rules_components = rules_fingerprint(self.hashes, yara_files)
+        self.rules_version = self.rules_components["all"]
 
     def scan_path(self, path) -> Report:
         path = Path(path)
@@ -129,10 +157,12 @@ class Scanner:
             report.files.append(FileResult(path.name, "?", path.stat().st_size, note="quá lớn, không quét"))
             report.incomplete.append(f"{path.name}: lớn hơn {self.max_file // MB} MB")
         if self.use_clamav:
-            found = engines.clamav_scan(path)
+            left = budget["deadline"] - time.monotonic()  # ClamAV dùng phần thời gian còn lại, không hơn
+            found = engines.clamav_scan(path, timeout=left) if left >= 1 else None
             if found is None:
-                report.incomplete.append("ClamAV không chạy được (thiếu cơ sở dữ liệu? chạy freshclam, "
-                                         "hoặc dùng --no-clamav)")
+                report.incomplete.append(
+                    "ClamAV không chạy được hoặc hết thời gian quét (thiếu cơ sở dữ liệu? chạy freshclam, "
+                    "tăng --timeout, hoặc dùng --no-clamav)")
             else:
                 report.files[0].findings += found
         return report
@@ -161,7 +191,8 @@ class Scanner:
                 "Trùng mã băm với mẫu mã độc đã biết" + (f": {family}" if family else ""), engine="hash"))
         if data is not None:
             for engine, run in (("heuristic", lambda: rules.check_content(data, kind, name)),
-                                ("YARA", lambda: engines.yara_scan(self.yara, data))):
+                                ("YARA", lambda: engines.yara_scan(self.yara, data, timeout=max(
+                                    1, min(60, int(budget["deadline"] - time.monotonic())))))):
                 try:
                     res.findings += run()
                 except Exception as e:  # engine lỗi/timeout KHÔNG được coi là sạch

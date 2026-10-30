@@ -145,6 +145,21 @@ Mã `3` là lỗi (không đọc được file, lỗi ngoài dự kiến). Lỗi
 Khi vừa có dấu hiệu nguy hiểm vừa có phần chưa quét, kết luận theo dấu hiệu và kèm ghi chú `CHƯA ĐẦY ĐỦ`;
 JSON luôn có `"complete"` và danh sách `incomplete` ghi rõ từng phần chưa kiểm tra.
 
+**Báo cáo JSON** (`--json`) có hai trường để tích hợp ổn định:
+
+- `schema_version` (hiện là `1`): chỉ tăng khi một trường bị đổi tên, xóa hoặc đổi nghĩa. Thêm trường mới thì giữ
+  nguyên, nên công cụ đọc báo cáo cứ bỏ qua trường lạ là tương thích. Một test trong repo khóa các trường của bản 1.
+- `rules_version`: mã 12 ký tự **tự sinh từ nội dung bộ luật** (chỉ dấu heuristic, ngưỡng điểm, luật YARA đã nạp,
+  danh sách mã băm). Cùng bộ luật thì cùng mã trên mọi máy; `rules_components` cho biết phần nào đã đổi. Nhờ đó
+  hai lần quét hay hai lần benchmark luôn biết có dùng cùng bộ luật hay không. Danh sách mã băm cập nhật hằng tuần
+  nên `rules_version` cũng đổi hằng tuần, đó là điều đúng vì khả năng phát hiện đã đổi.
+
+```json
+{"schema_version": 1, "version": "0.7.0", "rules_version": "4fab7dd12a35",
+ "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "4fab7dd12a35"},
+ "engines": {…}, "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
+```
+
 ## Cách chấm điểm
 
 Mỗi phát hiện có mức độ `LOW` (10) · `MEDIUM` (30) · `HIGH` (60) · `CRITICAL` (100) và thuộc một nhóm
@@ -232,6 +247,8 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
   ĐÁNG NGỜ; UPX đơn thuần chỉ ở mức LOW. Bật ClamAV/YARA để tăng độ phủ.
 - RAM đỉnh trong trường hợp xấu nhất xấp xỉ `--max-depth × --max-size` (mỗi tầng lồng giữ nội dung của tầng
   cha trong lúc quét tầng con), tức khoảng 1,3 GB với mặc định. Máy yếu nên hạ `--max-size`.
+- YARA và ClamAV chỉ được dùng phần thời gian còn lại của `--timeout`; hết giờ thì ClamAV bị dừng và kết quả là
+  chưa quét đủ.
 - Hạn thời gian được kiểm tra giữa các file con; riêng việc quét nội dung một file (tối đa `--max-size`) không bị
   ngắt giữa chừng.
 - Mọi lớp kiểm tra đọc **trọn nội dung** mỗi file (file 256 MB mất khoảng 25 giây). File con lớn hơn `--max-size`
