@@ -316,7 +316,9 @@ def test_7z_extracts_in_batches_within_budget(monkeypatch):
     assert sum(calls[1:]) <= 3  # không giải nén các lô sau khi đã hết ngân sách
 
 
-def test_time_budget():
+def test_time_budget(monkeypatch):
+    from archive_guard import scanner as sc
+    monkeypatch.setattr(sc.time, "monotonic", lambda: 1000.0)  # đồng hồ thô (Windows + Python 3.10) không nhích
     report = scan(make_zip({f"{i}.zip": make_zip({"a.txt": b"a"}) for i in range(5)}), timeout=0)
     assert "ARCHIVE.TIMEOUT" in rules_of(report)
     assert report.incomplete

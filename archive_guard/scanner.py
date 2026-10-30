@@ -179,7 +179,7 @@ class Scanner:
         elif budget["bytes"] > self.max_total:
             f = Finding("ARCHIVE.BOMB_TOTAL", HIGH, "archive_abuse",
                         f"Tổng dung lượng giải nén vượt {self.max_total // MB} MB – nghi zip bomb")
-        elif time.monotonic() > budget["deadline"]:
+        elif time.monotonic() >= budget["deadline"]:  # >=: đồng hồ Windows/Python 3.10 nhích theo nấc ~16 ms
             f = Finding("ARCHIVE.TIMEOUT", MEDIUM, "archive_abuse",
                         f"Quét quá {self.timeout} giây – dừng (file nén có thể được thiết kế để làm treo trình quét)")
         else:
