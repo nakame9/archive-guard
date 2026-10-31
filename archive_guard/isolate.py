@@ -1,4 +1,4 @@
-"""--isolate: mỗi file nén được quét trong một process con (worker) riêng.
+"""Chế độ cô lập (mặc định): mỗi file nén được quét trong một process con (worker) riêng.
 
 Process cha chỉ khởi chạy worker, canh giờ, đọc file JSON kết quả và dọn dẹp. Worker bị treo, crash hay hết
 RAM không làm hỏng cả lần quét: file đó nhận kết luận CHƯA QUÉT ĐỦ hoặc lỗi, KHÔNG BAO GIỜ là SẠCH.
@@ -9,11 +9,13 @@ dòng lệnh (danh sách process). Đảm bảo theo hệ điều hành:
 - giới hạn RAM (--worker-memory) cho worker và process con của nó: Linux (RLIMIT_AS), Windows (Job Object).
   macOS không áp được RLIMIT_AS một cách tin cậy nên không hỗ trợ.
 
-Đây là cô lập để ỔN ĐỊNH (treo/crash/hết RAM), không phải sandbox bảo mật: worker chạy cùng quyền người dùng.
+Worker còn tự áp sandbox hệ điều hành trước khi đọc dữ liệu (Landlock/seccomp/network namespace trên Linux,
+sandbox-exec trên macOS) – xem sandbox.py. Giới hạn CPU = hard timeout trên mọi hệ điều hành.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal
 import subprocess
@@ -21,25 +23,35 @@ import sys
 import tempfile
 from pathlib import Path
 
+from . import sandbox
+
 MEMORY_SUPPORTED = sys.platform.startswith("linux") or os.name == "nt"
 PACKAGE_PARENT = Path(__file__).resolve().parent.parent
 
 
 def run(cmd, stdin: bytes, timeout: float, memory_mb: int | None = None, cwd=None, env=None):
-    """Chạy cmd, trả (mã thoát, stdout, stderr, hết_giờ). Luôn dọn cả cây process con, kể cả khi lỗi."""
+    """Chạy cmd, trả (mã thoát, stdout, stderr, hết_giờ). Luôn dọn cả cây process con, kể cả khi lỗi.
+
+    Giới hạn CPU = timeout (đề phòng worker dùng nhiều luồng đốt CPU nhanh hơn đồng hồ thật).
+    """
     kw = {}
+    cpu = max(1, math.ceil(timeout))
     if os.name == "posix":
+        import resource
+
+        def limits():
+            resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+            if memory_mb:
+                resource.setrlimit(resource.RLIMIT_AS, (memory_mb << 20, memory_mb << 20))
+
         kw["start_new_session"] = True  # process group riêng → kill được cả cây
-        if memory_mb:
-            import resource
-            limit = memory_mb << 20
-            kw["preexec_fn"] = lambda: resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        kw["preexec_fn"] = limits
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          cwd=cwd, env=env, **kw)
     job = None
     try:
         if os.name == "nt":
-            job = _windows_job(p, memory_mb)
+            job = _windows_job(p, memory_mb, cpu)
         out, err = p.communicate(stdin, timeout=timeout)
         timed_out = False
     except subprocess.TimeoutExpired:
@@ -80,8 +92,8 @@ def _k32():
     return k32
 
 
-def _windows_job(p, memory_mb):
-    """Gắn worker vào một Job Object: đóng job là kill cả cây; có thể giới hạn RAM cho cả job."""
+def _windows_job(p, memory_mb, cpu_seconds):
+    """Gắn worker vào một Job Object: đóng job là kill cả cây; giới hạn thời gian CPU và (tùy chọn) RAM."""
     import ctypes
     from ctypes import wintypes
 
@@ -103,7 +115,8 @@ def _windows_job(p, memory_mb):
     k32 = _k32()
     job = k32.CreateJobObjectW(None, None)
     info = EXTENDED()
-    info.Basic.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    info.Basic.LimitFlags = 0x2000 | 0x4  # KILL_ON_JOB_CLOSE | JOB_TIME (thời gian CPU của cả job)
+    info.Basic.PerJobUserTimeLimit = cpu_seconds * 10_000_000  # đơn vị 100 ns
     if memory_mb:
         info.Basic.LimitFlags |= 0x200  # JOB_OBJECT_LIMIT_JOB_MEMORY: tính cả process con
         info.JobMemoryLimit = memory_mb << 20
@@ -122,17 +135,26 @@ def _windows_job(p, memory_mb):
     return job
 
 
-def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | None = None):
-    """Quét một file trong worker. Trả (report dict hoặc None, stdout của worker, lỗi hoặc None, hết_giờ)."""
+def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | None = None,
+         use_sandbox: bool = True, require_sandbox: bool = False):
+    """Quét một file trong worker. Trả (report dict hoặc None, stdout của worker, lỗi hoặc None, hết_giờ).
+
+    report có thêm trường "sandbox": trạng thái các lớp sandbox mà worker đã áp (sandbox.py).
+    """
     with tempfile.TemporaryDirectory(prefix="archiveguard-", ignore_cleanup_errors=True) as tmp:
         out = Path(tmp) / "report.json"
         env = {**os.environ, "TMP": tmp, "TEMP": tmp, "TMPDIR": tmp, "PYTHONIOENCODING": "utf-8",
+               "PYTHONDONTWRITEBYTECODE": "1",  # worker không ghi .pyc (sandbox cũng không cho ghi ngoài tmp)
                "PYTHONPATH": os.pathsep.join(filter(None, [str(PACKAGE_PARENT), os.environ.get("PYTHONPATH")]))}
         # cwd = thư mục tạm rỗng: `python -m` thêm cwd vào sys.path, không để file .py lạ ở thư mục người dùng
         # (vd. Downloads) che mất thư viện chuẩn
         cmd = [sys.executable, "-m", "archive_guard", str(Path(path).resolve()), "--_worker",
                "--json", str(out), *worker_args]
-        request = json.dumps({"passwords": list(passwords)}).encode()
+        wrapped = False
+        if use_sandbox:
+            cmd, wrapped = sandbox.macos_wrap(cmd, tmp)
+        request = json.dumps({"passwords": list(passwords), "sandbox": use_sandbox, "require_sandbox": require_sandbox,
+                              "outer": "sandbox-exec" if wrapped else None}).encode()
         try:
             code, stdout, stderr, timed_out = run(cmd, request, hard_timeout, memory_mb, cwd=tmp, env=env)
         except OSError as e:
@@ -142,6 +164,7 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
         try:
             data = json.loads(out.read_text(encoding="utf-8"))
             (report,) = data["reports"]  # đúng một báo cáo cho đúng một file
+            report["sandbox"] = data.get("sandbox")
         except (OSError, ValueError, KeyError, TypeError):
             last = (stderr.strip().splitlines() or ["không có thông báo lỗi"])[-1]
             return None, stdout, f"worker lỗi (mã thoát {code}): {last}", False

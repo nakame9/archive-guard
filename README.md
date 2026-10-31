@@ -20,7 +20,9 @@ hay mở bất cứ thứ gì bên trong.
   YARA và ClamAV (tùy chọn).
 - **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, file hỏng, định dạng chưa hỗ trợ, engine lỗi hay
   vượt giới hạn đều cho kết luận `CHƯA QUÉT ĐỦ`.
-- **Chế độ cô lập `--isolate`:** mỗi file nén quét trong một process con, có hard timeout và giới hạn RAM.
+- **Parser không chạy trong process chính:** mặc định mỗi file nén được quét trong một worker có hard timeout,
+  giới hạn CPU/RAM và **sandbox hệ điều hành** (Linux: Landlock + seccomp + chặn mạng; macOS: sandbox-exec).
+  Có image Docker cứng hóa cho production.
 
 ## Cài đặt
 
@@ -42,7 +44,7 @@ archiveguard file.zip                       # quét một file
 archiveguard Downloads/                     # quét mọi file nén trong thư mục
 archiveguard tailieu.rar -p 123456          # thử mật khẩu
 archiveguard file.zip --json baocao.json    # xuất báo cáo JSON
-archiveguard Downloads/ --isolate           # mỗi file nén quét trong một process con riêng
+archiveguard Downloads/ --require-sandbox   # production: từ chối quét nếu thiếu sandbox file/mạng
 ```
 
 Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm):
@@ -79,7 +81,7 @@ Chi tiết và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
 | Bạn muốn | Đọc |
 |---|---|
-| Mọi tùy chọn, định dạng JSON, `--isolate`, cập nhật mã băm, giới hạn cần biết | [docs/USAGE.md](docs/USAGE.md) |
+| Mọi tùy chọn, định dạng JSON, cô lập & sandbox, Docker, cập nhật mã băm, giới hạn cần biết | [docs/USAGE.md](docs/USAGE.md) |
 | Hiểu code: module, luồng quét, ngân sách, **muốn sửa X thì sửa ở đâu** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Cách chấm điểm, thêm luật / YARA / mã băm | [docs/RULES.md](docs/RULES.md) |
 | Số liệu đo, phương pháp, cách tự đo recall | [docs/BENCHMARK.md](docs/BENCHMARK.md) |

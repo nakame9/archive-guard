@@ -37,7 +37,7 @@ def test_cli_unexpected_crash_is_error_not_clean(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sc.Scanner, "scan_path", crash)
     (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
-    assert main([str(tmp_path / "a.zip"), "--no-clamav"]) == 3
+    assert main([str(tmp_path / "a.zip"), "--no-clamav", "--no-isolate"]) == 3
 
 
 SCHEMA_V1 = {
@@ -77,6 +77,11 @@ def test_rules_version_follows_rule_content(tmp_path):
     assert rules_fingerprint({}, [lf]) == rules_fingerprint({}, [crlf])  # checkout Windows vẫn cùng phiên bản
 
 
-def test_worker_memory_needs_isolate():
+@pytest.mark.parametrize("argv", [
+    ["--no-isolate", "--worker-memory", "100"],
+    ["--no-isolate", "--require-sandbox"],
+    ["--no-sandbox", "--require-sandbox"],
+])
+def test_conflicting_isolation_options_are_rejected(argv):
     with pytest.raises(SystemExit):
-        main(["x.zip", "--worker-memory", "100"])
+        main(["x.zip", *argv])

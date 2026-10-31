@@ -17,8 +17,11 @@ Kèm theo: phiên bản (`archiveguard -V`), hệ điều hành, cách tái hi�
 ## Phạm vi
 
 ArchiveGuard là công cụ hỗ trợ phát hiện, không phải phần mềm diệt virus. Mã độc **không bị phát hiện** là giới hạn
-đã biết của heuristic: hãy báo qua issue "Báo nhầm / bỏ sót", không cần báo riêng. `--isolate` là cô lập để ổn
-định, không phải sandbox bảo mật (xem [docs/USAGE.md](docs/USAGE.md#chế-độ-cô-lập---isolate)).
+đã biết của heuristic: hãy báo qua issue "Báo nhầm / bỏ sót", không cần báo riêng.
+
+Cách vượt sandbox của worker (đọc/ghi file ngoài phạm vi cho phép, mở kết nối mạng, thoát khỏi giới hạn CPU/RAM) **là**
+lỗ hổng, hãy báo riêng. Lớp nào đang bật trên máy nào: [docs/USAGE.md](docs/USAGE.md#cô-lập-và-sandbox-mặc-định).
+Windows chưa có sandbox file/mạng: khi xử lý dữ liệu không tin cậy trên Windows, hãy chạy trong Docker hoặc WSL.
 
 ## Phiên bản được hỗ trợ
 

@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
-from . import __version__, isolate, malwarebazaar
+from . import __version__, isolate, malwarebazaar, sandbox
 from .extract import archive_kind
 from .rules import CATEGORIES, SEVERITY_NAME
 from .scanner import VERDICTS, Report, Scanner
@@ -35,23 +36,32 @@ def _targets(paths):
                 yield f
 
 
+# Ký tự điều khiển terminal (ESC…) và ký tự đảo chiều Unicode trong tên file lấy từ file nén do kẻ tấn công đặt:
+# in thô ra có thể đổi màu/xóa màn hình/giả mạo đuôi file trên terminal của người dùng
+_UNSAFE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def _safe(text) -> str:
+    return _UNSAFE.sub(lambda m: f"\\u{ord(m.group()):04x}", str(text))
+
+
 def _print_report(report, show_all, paint):
-    print(paint(f"\n== {report.target} ==", "1"))
+    print(paint(f"\n== {_safe(report.target)} ==", "1"))
     for f in report.files:
         if f.verdict == "clean" and not show_all:
             continue
-        print(f"  {paint(f'[{LABEL[f.verdict]} {f.score}]', COLOR[f.verdict])} {f.path}"
-              + (f"  ({f.note})" if f.note else ""))
+        print(f"  {paint(f'[{LABEL[f.verdict]} {f.score}]', COLOR[f.verdict])} {_safe(f.path)}"
+              + (f"  ({_safe(f.note)})" if f.note else ""))
         for x in sorted(f.findings, key=lambda x: -x.severity):
             cat = CATEGORIES.get(x.category, x.category)
-            print(f"      {SEVERITY_NAME[x.severity]:<8} {cat}: {x.title}")
+            print(f"      {SEVERITY_NAME[x.severity]:<8} {cat}: {_safe(x.title)}")
             if x.detail:
-                print(f"               {x.detail}")
+                print(f"               {_safe(x.detail)}")
     counts = {v: sum(1 for f in report.files if f.verdict == v) for v in LABEL}
     print(f"  Đã quét {len(report.files)} file: {counts['malicious']} nguy hiểm, "
           f"{counts['suspicious']} đáng ngờ, {counts['incomplete']} chưa quét đủ, {counts['clean']} sạch")
     for note in report.incomplete:
-        print(paint(f"  ! Chưa kiểm tra được: {note}", "33"))
+        print(paint(f"  ! Chưa kiểm tra được: {_safe(note)}", "33"))
     verdict = report.verdict
     kinds = ", ".join(CATEGORIES.get(c, c) for c in report.categories)
     partial = (f" (CHƯA ĐẦY ĐỦ – {len(report.incomplete)} phần chưa kiểm tra)"
@@ -92,12 +102,18 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=int, default=300, metavar="GIÂY",
                     help="thời gian quét tối đa cho mỗi file nén (mặc định 300 giây)")
     ap.add_argument("--isolate", action="store_true",
-                    help="quét mỗi file nén trong một process con riêng: treo/crash/hết RAM không ảnh hưởng phần còn lại")
+                    help="(mặc định, giữ để tương thích) quét mỗi file nén trong một worker có sandbox")
+    ap.add_argument("--no-isolate", action="store_true",
+                    help="KHÔNG khuyến khích với dữ liệu không tin cậy: chạy parser ngay trong process chính, không sandbox")
+    ap.add_argument("--no-sandbox", action="store_true",
+                    help="vẫn dùng worker nhưng không áp sandbox hệ điều hành (khi sandbox làm hỏng môi trường lạ)")
+    ap.add_argument("--require-sandbox", action="store_true",
+                    help="báo lỗi thay vì quét nếu worker không giới hạn được truy cập file và chặn được mạng")
     ap.add_argument("--worker-timeout", type=float, metavar="GIÂY",
                     help="hard timeout của mỗi worker, quá hạn là kill cả cây process (mặc định --timeout + 30)")
     ap.add_argument("--worker-memory", type=int, metavar="MB",
-                    help="giới hạn RAM cho worker và process con của nó (Linux, Windows; cần --isolate)")
-    ap.add_argument("--_worker", action="store_true", help=argparse.SUPPRESS)  # process con của --isolate
+                    help="giới hạn RAM cho worker và process con của nó (Linux, Windows)")
+    ap.add_argument("--_worker", action="store_true", help=argparse.SUPPRESS)  # process con của chế độ cô lập
     ap.add_argument("--no-yara", action="store_true", help="không dùng YARA")
     ap.add_argument("--no-clamav", action="store_true", help="không dùng ClamAV")
     ap.add_argument("--no-color", action="store_true", help="tắt màu")
@@ -113,12 +129,18 @@ def main(argv=None) -> int:
 
     if not args.paths and not args.update_hashes:
         ap.error("cần ít nhất một file/thư mục để quét, hoặc --update-hashes")
-    if (args.worker_timeout or args.worker_memory) and not args.isolate:
-        ap.error("--worker-timeout và --worker-memory cần đi kèm --isolate")
+    if args.no_isolate and (args.isolate or args.worker_timeout or args.worker_memory or args.no_sandbox
+                            or args.require_sandbox):
+        ap.error("--no-isolate không dùng chung được với --isolate/--worker-*/--no-sandbox/--require-sandbox")
+    if args.no_sandbox and args.require_sandbox:
+        ap.error("--no-sandbox và --require-sandbox mâu thuẫn nhau")
     if args.worker_memory and not isolate.MEMORY_SUPPORTED:
         ap.error("--worker-memory chỉ hỗ trợ Linux và Windows")
-    if args._worker:  # mật khẩu được truyền qua stdin để không lộ trên dòng lệnh
-        args.password += json.load(sys.stdin).get("passwords", [])
+    use_worker = not args.no_isolate and not args._worker
+    request = {}
+    if args._worker:  # mật khẩu và yêu cầu sandbox được truyền qua stdin, không lộ trên dòng lệnh
+        request = json.load(sys.stdin)
+        args.password += request.get("passwords", [])
     hard_timeout = args.worker_timeout or args.timeout + 30
     for extra in args.yara + args.hashes:
         if not extra.exists():
@@ -137,11 +159,22 @@ def main(argv=None) -> int:
                       max_total_mb=args.max_total, timeout=args.timeout, max_archive_mb=args.max_archive_size,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)
+    sandbox_status = None
+    if request.get("sandbox"):  # áp SAU khi nạp bộ luật (tin cậy), TRƯỚC khi đọc byte nào của file cần quét
+        sandbox_status = sandbox.apply([p.resolve() for p in args.paths], os.environ.get("TMPDIR") or os.getcwd(),
+                                       outer=request.get("outer"))
+        lacking = sandbox.missing(sandbox_status)
+        if request.get("require_sandbox") and lacking:
+            print(f"Lỗi: --require-sandbox nhưng worker thiếu: {', '.join(lacking)} ({sandbox_status})",
+                  file=sys.stderr)
+            return 3
     if not args._worker:
         print(f"ArchiveGuard {__version__} | luật {scanner.rules_version} | "
               + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items())
               + (f" | cô lập: bật (timeout cứng {hard_timeout:g}s"
-                 + (f", RAM {args.worker_memory} MB" if args.worker_memory else "") + ")" if args.isolate else ""))
+                 + (f", RAM {args.worker_memory} MB" if args.worker_memory else "")
+                 + (", không sandbox" if args.no_sandbox else ", sandbox") + ")"
+                 if use_worker else " | cô lập: TẮT (parser chạy trong process chính)"))
     worker_args = ["--max-depth", str(args.max_depth), "--max-size", str(args.max_size),
                    "--max-total", str(args.max_total), "--timeout", str(args.timeout),
                    "--max-archive-size", str(args.max_archive_size)]
@@ -150,12 +183,18 @@ def main(argv=None) -> int:
     worker_args += [f for f, on in (("--all", args.all), ("--no-yara", args.no_yara),
                                     ("--no-clamav", args.no_clamav)) if on]
 
-    reports, failed = [], False
+    reports, failed, worker_sandbox = [], False, None
     for path in _targets(args.paths):
-        if args.isolate:
-            report, output, error, timed_out = isolate.scan(path, worker_args, args.password,
-                                                             hard_timeout, args.worker_memory)
-            print(output, end="")
+        if use_worker:
+            report, output, error, timed_out = isolate.scan(path, worker_args, args.password, hard_timeout,
+                                                             args.worker_memory, use_sandbox=not args.no_sandbox,
+                                                             require_sandbox=args.require_sandbox)
+            # worker có thể đã bị khai thác: không cho in ký tự điều khiển terminal (\r\n của Windows là bình thường)
+            print(_safe(output.replace("\r\n", "\n")), end="")
+            if report is not None and (not isinstance(report, dict) or report.get("verdict") not in VERDICTS):
+                report, error, timed_out = None, "worker trả về kết quả không hợp lệ", False
+            if report is not None:
+                worker_sandbox = worker_sandbox or report.get("sandbox")
             if report is None:  # worker treo/crash/hết RAM: CHƯA QUÉT ĐỦ, không bao giờ là SẠCH
                 failed_report = Report(str(path), incomplete=[error])
                 _print_report(failed_report, args.all, paint)
@@ -178,13 +217,17 @@ def main(argv=None) -> int:
 
     if not reports and not failed and not args._worker:
         print("Không tìm thấy file nén nào để quét.")
+    if worker_sandbox:
+        layers = {k: v for k, v in worker_sandbox.items() if isinstance(v, str)}
+        print(paint("\nSandbox của worker: " + "; ".join(f"{k}: {v}" for k, v in layers.items()), "2"))
     if args.json:
         args.json.write_text(json.dumps({"schema_version": SCHEMA_VERSION, "version": __version__,
                                          "rules_version": scanner.rules_version,
                                          "rules_components": scanner.rules_components,
                                          "engines": scanner.engines,
-                                         "isolation": {"hard_timeout": hard_timeout,
-                                                       "memory_mb": args.worker_memory} if args.isolate else None,
+                                         "isolation": {"hard_timeout": hard_timeout, "memory_mb": args.worker_memory,
+                                                       "sandbox": not args.no_sandbox} if use_worker else None,
+                                         "sandbox": sandbox_status,
                                          "reports": reports},
                                         ensure_ascii=False, indent=2), encoding="utf-8")
         if not args._worker:

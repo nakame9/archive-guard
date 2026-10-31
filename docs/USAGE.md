@@ -36,9 +36,11 @@ Thư mục được quét đệ quy; chỉ file có **chữ ký** của file né
 | | `--max-total MB` | 4096 | Tổng byte giải nén, tính cả các tầng lồng nhau |
 | | `--max-depth N` | 5 | Số tầng file nén lồng nhau |
 | | `--timeout GIÂY` | 300 | Thời gian quét mỗi file nén |
-| Cô lập | `--isolate` | tắt | Mỗi file nén quét trong một process con |
-| | `--worker-timeout GIÂY` | `--timeout` + 30 | Hard timeout của worker |
+| Cô lập | *(mặc định)* | bật | Mỗi file nén quét trong một worker có sandbox |
+| | `--worker-timeout GIÂY` | `--timeout` + 30 | Hard timeout của worker (cũng là giới hạn CPU) |
 | | `--worker-memory MB` | – | Giới hạn RAM cho worker (Linux, Windows) |
+| | `--require-sandbox` | tắt | Từ chối quét nếu thiếu sandbox file/mạng |
+| | `--no-sandbox`, `--no-isolate` | – | Tắt sandbox / tắt cả worker (xem bên dưới) |
 
 Ngoài ra có hai giới hạn cố định: tổng **20.000 entry** (kể cả thư mục) và tỷ lệ nén **100:1** với file con từ 50 MB.
 
@@ -58,7 +60,7 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.10.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.11.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
@@ -69,28 +71,63 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 - `rules_version`: mã 12 ký tự **tự sinh từ nội dung bộ luật**. Cùng bộ luật thì cùng mã trên mọi máy;
   `rules_components` cho biết phần nào đã đổi. Danh sách mã băm cập nhật hằng tuần nên mã này cũng đổi hằng tuần.
 - `complete` / `incomplete`: có phần nào chưa kiểm tra được không, và cụ thể là phần nào.
-- `worker_error` (chỉ khi `--isolate`): lý do worker thất bại.
+- `sandbox` (mỗi báo cáo): các lớp sandbox worker đã bật; `isolation` (đầu file): cấu hình cô lập, `null` khi `--no-isolate`.
+- `worker_error`: lý do worker thất bại (nếu có).
 
-## Chế độ cô lập `--isolate`
+## Cô lập và sandbox (mặc định)
 
-Mỗi file nén được quét trong một **process con (worker)**. Process chính chỉ canh giờ, đọc kết quả và dọn dẹp,
-nên một file làm parser treo, crash hay ăn hết RAM **không làm hỏng cả lần quét**: file đó nhận `CHƯA QUÉT ĐỦ`
-(hết giờ, mã 4) hoặc lỗi (mã 3), **không bao giờ là SẠCH**.
+Parser file nén **không chạy trong process chính**. Mỗi file nén được quét trong một **process con (worker)**:
+process chính chỉ canh giờ, đọc và kiểm tra kết quả, dọn dẹp. Worker tự áp **sandbox hệ điều hành** ngay sau khi
+nạp bộ luật và **trước khi đọc byte đầu tiên** của file cần quét; process con của nó (unrar, clamscan) thừa hưởng
+mọi hạn chế. Worker treo, crash, hết RAM hay trả kết quả hỏng → `CHƯA QUÉT ĐỦ` (hết giờ, mã 4) hoặc lỗi
+(mã 3), **không bao giờ là SẠCH**; JSON ghi `worker_error`.
+
+| Lớp bảo vệ | Linux | macOS | Windows |
+|---|---|---|---|
+| Hard timeout `--worker-timeout` (mặc định `--timeout` + 30 s), kill **cả cây** process | ✅ process group | ✅ process group | ✅ Job Object |
+| Giới hạn CPU (= hard timeout) | ✅ RLIMIT_CPU | ✅ RLIMIT_CPU | ✅ Job Object |
+| Giới hạn RAM `--worker-memory` (worker + process con) | ✅ RLIMIT_AS | ❌ báo lỗi | ✅ Job Object |
+| Thư mục tạm riêng, xóa khi xong | ✅ | ✅ | ✅ |
+| Chỉ **ghi** được thư mục tạm riêng | ✅ Landlock | ✅ sandbox-exec | ❌ |
+| Chỉ **đọc** được file đầu vào + thư viện + thư mục hệ thống | ✅ Landlock | ❌ (đọc được mọi file) | ❌ |
+| Chặn mạng | ✅ network namespace / seccomp / Landlock TCP | ✅ sandbox-exec | ❌ |
+| Chặn syscall nguy hiểm (ptrace, mount, bpf, nạp module…) | ✅ seccomp (x86_64) | ❌ | ❌ |
+| no_new_privs, không ghi core dump | ✅ | – | – |
+| Mật khẩu truyền qua stdin, không lộ trên dòng lệnh | ✅ | ✅ | ✅ |
+
+Cuối mỗi lần quét, dòng `Sandbox của worker: …` (và trường `sandbox` của mỗi báo cáo JSON) cho biết **lớp nào
+thực sự đã bật** trên máy bạn. Kiểm tra nhanh: `python -m archive_guard.sandbox` chạy thử các thao tác bị cấm
+(ghi ra ngoài, đọc file cá nhân, mở socket, ptrace) trong sandbox và in kết quả.
+
+| Tùy chọn | Khi nào dùng |
+|---|---|
+| `--require-sandbox` | **Production:** từ chối quét (mã 3) nếu worker không giới hạn được truy cập file **và** chặn được mạng. Trên Windows luôn từ chối: hãy dùng Docker hoặc WSL |
+| `--no-sandbox` | Vẫn dùng worker nhưng không áp sandbox (khi sandbox làm hỏng một môi trường lạ) |
+| `--no-isolate` | **Không khuyến khích với dữ liệu không tin cậy:** parser chạy ngay trong process chính, không hard timeout, không sandbox; nhanh hơn ~0,1 giây mỗi file nén |
+
+Ghi chú:
+- Chi phí của worker khoảng **0,1 giây mỗi file nén**.
+- `--worker-memory` thấp hơn ~1,5 GB thì ClamAV không chạy được và kết quả là `CHƯA QUÉT ĐỦ`.
+- Network namespace cần user namespace không đặc quyền; nhiều bản phân phối (vd. Ubuntu 24.04) hay container chặn
+  điều này. Khi đó mạng vẫn bị chặn bằng seccomp (mọi socket không phải AF_UNIX) và Landlock (TCP).
+- Landlock cần kernel ≥ 5.13 có bật Landlock. seccomp hiện chỉ cho x86_64.
+- `python -m archive_guard.benchmark` vẫn chạy parser trong process của nó: chỉ dùng trong máy ảo (xem BENCHMARK.md).
+
+### Docker
+
+Lớp ngoài cùng cho production: container không mạng, hệ thống file chỉ đọc, không capability, không leo quyền,
+giới hạn RAM và số process. Sandbox của worker vẫn hoạt động **bên trong** container.
 
 ```bash
-archiveguard Downloads/ --isolate
-archiveguard x.zip --isolate --worker-memory 1024 --worker-timeout 120
+docker build -t archive-guard .
+docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop ALL \
+  --security-opt no-new-privileges --memory 2g --pids-limit 128 \
+  -v "$PWD:/scan:ro" archive-guard .
 ```
 
-| Tính năng | Linux | Windows | macOS |
-|---|---|---|---|
-| Hard timeout, kill **cả cây** process (kể cả clamscan, unrar) | ✅ | ✅ (Job Object) | ✅ |
-| Giới hạn RAM `--worker-memory` cho worker **và** process con | ✅ (RLIMIT_AS) | ✅ (Job Object) | ❌ báo lỗi |
-| Mật khẩu `-p` truyền qua stdin, không lộ trên dòng lệnh | ✅ | ✅ | ✅ |
-
-- Chi phí phụ khoảng **0,08 giây mỗi file nén**. Với file lớn thì không đáng kể.
-- `--worker-memory` thấp hơn ~1,5 GB thì ClamAV không chạy được và kết quả là `CHƯA QUÉT ĐỦ`.
-- Đây là cô lập để **ổn định**, không phải sandbox bảo mật: worker vẫn chạy với quyền của người dùng hiện tại.
+Image chạy bằng user thường (uid 10001), thư mục cần quét được gắn **chỉ đọc** vào `/scan`. Image không có
+ClamAV và `unrar` (thêm vào Dockerfile nếu cần). `--update-hashes` cần mạng, nên hãy build lại image để có danh
+sách mã băm mới.
 
 ## Mã băm mã độc từ MalwareBazaar
 
@@ -135,9 +172,10 @@ Cache được **gộp dần** (không xóa mã cũ) tại `~/.cache/archive-gua
 - RAM đỉnh trường hợp xấu nhất xấp xỉ `--max-depth × --max-size` (mỗi tầng lồng giữ nội dung tầng cha), tức
   khoảng 1,3 GB với mặc định. Máy yếu nên hạ `--max-size`.
 - 7z và RAR: thư viện đọc **cả danh mục file** khi mở nên giới hạn số entry chỉ có hiệu lực ngay sau đó. Một file
-  7z có danh mục khổng lồ vẫn tốn RAM lúc mở; dùng `--isolate --worker-memory` để chặn.
-- Không có `--isolate`, thời gian được kiểm tra sau mỗi khúc 1 MB giải nén ra và giữa các file con; riêng việc dò
-  chuỗi trên một file (tối đa `--max-size`, ~25 giây với 256 MB) không bị ngắt giữa chừng.
+  7z có danh mục khổng lồ vẫn tốn RAM lúc mở; dùng `--worker-memory` để chặn.
+- Hạn `--timeout` bên trong worker là hợp tác (kiểm tra sau mỗi khúc 1 MB và giữa các file con); thao tác bị treo
+  trong thư viện C hay parser bị crash chỉ được chặn bởi **hard timeout của process cha** – lý do parser không
+  bao giờ chạy trong process chính, trừ khi bạn dùng `--no-isolate`.
 - ClamAV không quét file trên 2 GB. Nếu dùng `clamdscan`, hãy tự nâng `MaxFileSize`/`MaxScanSize` trong
   `clamd.conf` (mặc định chỉ 100 MB).
 

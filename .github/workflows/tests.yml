@@ -32,3 +32,42 @@ jobs:
         run: pip install yara-python
         continue-on-error: true
       - run: pytest -q
+
+  sandbox-report:
+    # In trạng thái từng lớp sandbox trên mỗi hệ điều hành thành annotation (xem được không cần đăng nhập)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -e .
+      - run: python -m archive_guard.sandbox
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t archive-guard .
+      - name: Tạo mẫu thử vô hại
+        run: |
+          mkdir ci-samples
+          python3 -c "import zipfile; z = zipfile.ZipFile('ci-samples/hoadon.zip', 'w'); z.writestr('hoadon.pdf.exe', b'MZ' + bytes(64)); z.close()"
+      - name: Quét trong container cứng hóa (phải ra ĐÁNG NGỜ, mã thoát 1)
+        run: |
+          set +e
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,size=256m --cap-drop ALL \
+            --security-opt no-new-privileges --memory 1g --pids-limit 128 \
+            -v "$PWD/ci-samples:/scan:ro" archive-guard . --no-clamav
+          code=$?
+          echo "mã thoát: $code"
+          test "$code" -eq 1
+      - name: Trạng thái sandbox bên trong container
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,size=64m --cap-drop ALL \
+            --security-opt no-new-privileges -e GITHUB_ACTIONS -e AG_CONTEXT=docker \
+            --entrypoint python archive-guard -m archive_guard.sandbox

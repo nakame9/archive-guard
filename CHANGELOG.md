@@ -7,11 +7,27 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.11.0] – 2026-10-31
+
 ### Đổi
+- **Mặc định cô lập:** parser không còn chạy trong process chính; mỗi file nén được quét trong một worker.
+  `--no-isolate` để quay lại cách cũ (không khuyến khích với dữ liệu không tin cậy); `--isolate` giữ để tương thích.
+- Mã thoát của script cũ không đổi; mỗi file nén tốn thêm ~0,1 giây.
+
+### Thêm
+- Sandbox hệ điều hành trong worker: Linux – no_new_privs, network namespace, Landlock (chỉ đọc file đầu vào +
+  thư viện, chỉ ghi thư mục tạm, chặn TCP), seccomp x86_64 (chặn ptrace, mount, bpf, socket mạng…), RLIMIT_CORE=0;
+  macOS – sandbox-exec (chặn mạng, chặn ghi ngoài thư mục tạm).
+- Giới hạn CPU cho worker (RLIMIT_CPU; Windows: Job Object).
+- `--require-sandbox`, `--no-sandbox`; trường `sandbox` trong báo cáo JSON; `python -m archive_guard.sandbox`.
+- Process chính kiểm tra cấu trúc kết quả của worker và lọc ký tự điều khiển terminal trước khi in.
+- Dockerfile chạy bằng user thường; CI build image và quét thử trong container cứng hóa.
+
+### Tổ chức lại repo
 - Tổ chức lại repo: test tách theo mảng (`tests/test_*.py` + `tests/helpers.py`), README rút gọn, tài liệu chi tiết
   chuyển vào `docs/` (USAGE, ARCHITECTURE, RULES), thêm CONTRIBUTING, SECURITY, CHANGELOG.
 - CI: thêm job lint (ruff), cập nhật action lên Node 24, mẫu issue/PR, dependabot.
-- Ký tự đảo chiều Unicode trong mã nguồn được viết dưới dạng escape `‮` (giá trị không đổi).
+- Ký tự đảo chiều Unicode trong mã nguồn được viết dưới dạng escape `\u202e` (giá trị không đổi).
 
 ## [0.10.0] – 2026-10-31
 
