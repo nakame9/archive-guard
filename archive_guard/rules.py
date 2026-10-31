@@ -57,8 +57,8 @@ DECOY_EXTS = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", 
               "jpeg", "png", "gif", "bmp", "mp3", "mp4", "avi", "mkv", "mov", "wav", "zip", "rar", "7z"}
 SCRIPT_EXTS = {"ps1", "psm1", "bat", "cmd", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "sct",
                "py", "pyw", "sh", "php", "pl", "rb", "ahk", "au3", "html", "htm", "svg", "reg"}
-# Ký tự điều khiển hướng chữ Unicode: "photo‮gpj.exe" hiển thị thành "photoexe.jpg"
-BIDI_CHARS = "‪‫‬‭‮⁦⁧⁨⁩‎‏"
+# Ký tự điều khiển hướng chữ Unicode: "photo\u202egpj.exe" hiển thị thành "photoexe.jpg"
+BIDI_CHARS = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u200e\u200f"
 
 
 def basename(name: str) -> str:

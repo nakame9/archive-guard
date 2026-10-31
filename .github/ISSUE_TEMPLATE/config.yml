@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Báo lỗ hổng bảo mật (riêng tư)
+    url: https://github.com/nakame9/archive-guard/security/advisories/new
+    about: Lỗ hổng khiến ArchiveGuard báo SẠCH sai, treo, hay chạy mã từ file đang quét. Đừng mở issue công khai.

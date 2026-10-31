@@ -11,46 +11,16 @@ hay mở bất cứ thứ gì bên trong.
 
 ## Tính năng
 
-- **Không bao giờ giải nén ra đĩa** – mọi thứ được đọc trong bộ nhớ, nên file độc hại kiểu
-  `../../Windows/evil.exe` (Zip Slip) không thể ghi đè gì cả.
-- **Đi vào file nén lồng nhau** (zip trong rar trong 7z…), có giới hạn độ sâu.
-- **Chống archive bomb** bằng một **ngân sách tài nguyên chung** cho cả file nén và mọi tầng lồng bên trong:
-
-  | Giới hạn | Mặc định | Tùy chọn |
-  |---|---|---|
-  | Kích thước file nén đầu vào | 4096 MB | `--max-archive-size` |
-  | Dung lượng mỗi file con được đọc | 256 MB | `--max-size` |
-  | Tổng byte giải nén (đếm byte **thực tế** đọc ra, không tin kích thước ghi trong header) | 4096 MB | `--max-total` |
-  | Tổng số entry, **kể cả thư mục** | 20.000 | – |
-  | Số tầng lồng nhau | 5 | `--max-depth` |
-  | Thời gian quét | 300 giây | `--timeout` |
-  | Tỷ lệ nén của file con từ 50 MB | 100:1 | – |
-
-  Giải nén theo kiểu **streaming**: dữ liệu được đọc từng khúc 1 MB, ngân sách byte và thời gian được cập nhật
-  **sau mỗi khúc**, vượt ngưỡng là dừng **ngay giữa chừng** một file con (không đợi đọc xong). Mỗi entry được đếm
-  ngay khi duyệt danh mục. Với ZIP, số entry và kích thước danh mục được đọc từ bản ghi cuối file để chặn **trước
-  khi** nạp danh mục vào RAM. Chạm ngưỡng nào thì dừng toàn bộ lần quét, ghi phát hiện một lần và đánh dấu kết quả
-  là chưa quét đầy đủ. File 7z được giải nén theo từng lô ≤ `--max-size`, chỉ khi còn ngân sách.
-
-  | Định dạng | Đếm entry trước khi nạp danh mục | Dừng giữa chừng một file con |
-  |---|---|---|
-  | ZIP | ✅ (đọc bản ghi cuối file, cả ZIP64) | ✅ |
-  | TAR, TAR.GZ/BZ2/XZ | ✅ (đọc lần lượt từng header) | ✅ |
-  | GZ/BZ2/XZ đơn | – (một file) | ✅ |
-  | 7z, RAR | ❌ thư viện đọc cả danh mục khi mở; được chặn gián tiếp bởi `--max-archive-size`, chặt hơn thì dùng `--isolate --worker-memory` | ✅ |
-- **Hỗ trợ file có mật khẩu** (`--password`), và cảnh báo khi file thực thi bị khóa mật khẩu –
-  thủ thuật phổ biến để né antivirus.
-- **Nhiều lớp phát hiện:**
-
-| Lớp | Phát hiện |
-|---|---|
-| Tên file | đuôi kép `hoadon.pdf.exe`, ký tự đảo chiều Unicode (RLO), chèn khoảng trắng giấu đuôi, `.scr/.hta/.lnk/.iso…`, `autorun.inf`, Zip Slip, symlink nguy hiểm |
-| Nội dung | file `.exe` đội lốt `.pdf/.jpg`, macro VBA trong tài liệu Office |
-| Packer | tên section của UPX, ASPack, Themida, VMProtect, MPRESS, NsPack, Enigma, PECompact…, dấu `UPX!`, và entropy > 7.2 ở vùng mã thực thi (mã đã bị nén/mã hóa) |
-| Hành vi (chuỗi ASCII + UTF-16) | keylogger (hook bàn phím, nhãn `[BACKSPACE]`…), tiêm mã tiến trình, tự khởi động, tải & chạy mã (PowerShell/VBS dropper), tắt Defender/AMSI, chống máy ảo, xóa shadow copy & thư đòi tiền chuộc (ransomware), đánh cắp mật khẩu trình duyệt/ví tiền ảo, gửi dữ liệu qua Telegram/Discord, reverse shell, lây lan qua USB/mạng (worm) |
-| Mã băm | so với mã băm mẫu mã độc thật từ MalwareBazaar, phân theo họ (`--update-hashes`), và danh sách riêng của bạn (`--hashes`) |
-| YARA *(tùy chọn)* | luật đi kèm + luật của bạn (`--yara`) |
-| ClamAV *(tùy chọn)* | nếu máy có `clamscan`/`clamdscan`, tự động dùng thêm engine chữ ký của ClamAV |
+- **Không bao giờ giải nén ra đĩa:** mọi thứ được đọc trong bộ nhớ, nên đường dẫn độc kiểu `../../evil.exe`
+  (Zip Slip) không ghi đè được gì.
+- **Đi vào file nén lồng nhau** (zip trong rar trong 7z…) với một **ngân sách tài nguyên chung** chống archive bomb:
+  giải nén theo kiểu streaming, dừng ngay giữa chừng khi vượt giới hạn byte, số entry, độ sâu hay thời gian.
+- **Nhiều lớp phát hiện:** tên file giả mạo, nội dung đội lốt, packer (UPX, Themida…), chuỗi hành vi
+  (keylogger, tiêm tiến trình, ransomware, đánh cắp dữ liệu…), mã băm mã độc thật từ MalwareBazaar,
+  YARA và ClamAV (tùy chọn).
+- **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, file hỏng, định dạng chưa hỗ trợ, engine lỗi hay
+  vượt giới hạn đều cho kết luận `CHƯA QUÉT ĐỦ`.
+- **Chế độ cô lập `--isolate`:** mỗi file nén quét trong một process con, có hard timeout và giới hạn RAM.
 
 ## Cài đặt
 
@@ -59,249 +29,63 @@ Cần Python 3.10 trở lên.
 ```bash
 git clone https://github.com/nakame9/archive-guard.git
 cd archive-guard
-pip install -e .            # bản cơ bản
-pip install -e ".[yara]"    # thêm YARA (khuyên dùng)
+pip install -e ".[yara]"    # bỏ [yara] nếu không cần YARA
 ```
 
-Tùy chọn thêm:
+Tùy chọn: `unrar` hoặc 7-Zip trong PATH để đọc nội dung RAR; ClamAV để có thêm engine chữ ký.
+Chi tiết: [docs/USAGE.md](docs/USAGE.md#cài-thêm).
 
-- **Đọc nội dung RAR**: cần `unrar` hoặc `7z` trong PATH (Windows: cài 7-Zip rồi thêm
-  `C:\Program Files\7-Zip` vào PATH; Ubuntu: `sudo apt install unrar`). Không có thì vẫn kiểm tra được tên file trong RAR.
-- **ClamAV**: Ubuntu `sudo apt install clamav && sudo freshclam`; Windows tải tại clamav.net.
-
-### Mã băm mã độc từ MalwareBazaar
-
-Repo kèm sẵn `archive_guard/data/malwarebazaar.txt`, được workflow GitHub Actions `update-hashes` tự tải từ
-[MalwareBazaar](https://bazaar.abuse.ch/) và commit **mỗi thứ Hai**. Chỉ cần `git pull` là có danh sách mới.
-Nếu bạn fork repo, thêm secret `ABUSECH_AUTH_KEY` (Settings → Secrets and variables → Actions) để workflow chạy.
-
-Muốn cập nhật ngay trên máy mình (lưu vào cache riêng, gộp chung khi quét):
-
-1. Đăng ký **Auth-Key miễn phí** tại https://auth.abuse.ch/ (API miễn phí nhưng bắt buộc có key).
-2. Chạy:
-
-```bash
-# Linux/macOS
-export ABUSECH_AUTH_KEY=khoa_cua_ban
-# Windows PowerShell
-$env:ABUSECH_AUTH_KEY = "khoa_cua_ban"
-
-archiveguard --update-hashes                  # chỉ cập nhật
-archiveguard --update-hashes Downloads/       # cập nhật rồi quét luôn
-```
-
-Mỗi lần cập nhật tải mẫu đã gắn họ trong **7 ngày gần nhất**, cộng tối đa **1000 mẫu mới nhất cho mỗi họ**
-phổ biến, chia theo nhóm hành vi:
-
-| Nhóm | Họ mã độc |
-|---|---|
-| Keylogger | AgentTesla, SnakeKeylogger, Formbook |
-| Stealer | LummaStealer, RedLineStealer, Vidar, Stealc |
-| Backdoor / RAT | RemcosRAT, AsyncRAT, XWorm, njrat, QuasarRAT, NanoCore, DCRat |
-| Downloader | GuLoader, SmokeLoader, Amadey |
-| Ransomware | LockBit |
-| Worm | Phorpiex, Mirai |
-
-Mã băm được **gộp** vào cache trên máy (không xóa mã cũ), nên chạy định kỳ thì danh sách ngày càng dày:
-`~/.cache/archive-guard/malwarebazaar.txt` (Windows: `%LOCALAPPDATA%\archive-guard\malwarebazaar.txt`).
-Khi quét trúng, báo cáo ghi rõ họ mã độc, ví dụ `Trùng mã băm với mẫu mã độc đã biết: AgentTesla` và xếp
-vào nhóm Keylogger. Sửa danh sách họ trong `FAMILIES` ở `archive_guard/malwarebazaar.py`. Chỉ mã băm được tải
-về, không có mẫu mã độc nào.
-
-## Sử dụng
+## Dùng nhanh
 
 ```bash
 archiveguard file.zip                       # quét một file
 archiveguard Downloads/                     # quét mọi file nén trong thư mục
-archiveguard tailieu.rar -p 123456 -p infected   # thử các mật khẩu
-archiveguard file.7z --all                  # liệt kê cả file sạch
+archiveguard tailieu.rar -p 123456          # thử mật khẩu
 archiveguard file.zip --json baocao.json    # xuất báo cáo JSON
-archiveguard file.zip --yara my_rules/ --hashes malware_sha256.txt
-python -m archive_guard file.zip            # chạy không cần cài
 archiveguard Downloads/ --isolate           # mỗi file nén quét trong một process con riêng
-archiveguard x.zip --isolate --worker-memory 1024 --worker-timeout 120
 ```
 
-### Chế độ cô lập `--isolate`
-
-Mỗi file nén được quét trong một **process con (worker)** riêng. Process chính chỉ canh giờ, đọc kết quả và dọn dẹp,
-nên một file làm parser treo, crash hay ăn hết RAM **không làm hỏng cả lần quét**: file đó nhận kết luận
-`CHƯA QUÉT ĐỦ` (hết giờ, mã thoát 4) hoặc lỗi (mã thoát 3), **không bao giờ là SẠCH**. Báo cáo JSON ghi rõ
-`worker_error`.
-
-| Tính năng | Linux | Windows | macOS |
-|---|---|---|---|
-| Hard timeout `--worker-timeout` (mặc định `--timeout` + 30 giây), kill **cả cây** process (kể cả clamscan, unrar) | ✅ | ✅ (Job Object) | ✅ |
-| Giới hạn RAM `--worker-memory` cho worker **và** process con | ✅ (RLIMIT_AS) | ✅ (Job Object) | ❌ báo lỗi |
-| Mật khẩu `-p` truyền qua stdin, không lộ trên dòng lệnh | ✅ | ✅ | ✅ |
-
-- Chi phí phụ khoảng **0,08 giây mỗi file nén** (khởi động Python, nạp bộ luật). Với file lớn thì không đáng kể.
-- ClamAV cần khoảng 1–1,5 GB RAM để nạp cơ sở dữ liệu chữ ký. Nếu `--worker-memory` thấp hơn, ClamAV sẽ không chạy
-  được và kết quả là `CHƯA QUÉT ĐỦ`.
-- Đây là cô lập để **ổn định**, không phải sandbox bảo mật: worker vẫn chạy với quyền của người dùng hiện tại.
-
-Ví dụ kết quả (file mẫu vô hại tạo trong lúc thử nghiệm):
+Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm):
 
 ```text
 == hoa-don-thang-10.zip ==
   [NGUY HIỂM 100] hoa-don-thang-10.zip > HoaDon_T10.pdf.exe
       HIGH     Trojan / ngụy trang: Đuôi kép giả mạo: trông như .pdf nhưng thực ra là .exe
-               HoaDon_T10.pdf.exe
       HIGH     Keylogger (ghi phím): Chứa nhãn ghi phím đặc trưng của keylogger
                khớp: [backspace], [capslock], [enter]
-      MEDIUM   Keylogger (ghi phím): Dùng API bắt phím kèm theo dõi cửa sổ/clipboard
-               khớp: getforegroundwindow, setwindowshookexa
       MEDIUM   Stealer (đánh cắp dữ liệu): Gửi dữ liệu ra ngoài qua Telegram bot / Discord webhook / SMTP
                khớp: api.telegram.org/bot
-      LOW      Đáng chú ý: Có file thực thi/script .exe
-      LOW      Trojan / ngụy trang: Tự khởi động cùng Windows (Run key, Startup, tác vụ lập lịch)
-               khớp: currentversion\run
   [ĐÁNG NGỜ 30] hoa-don-thang-10.zip > autorun.inf
       MEDIUM   Worm (tự lây lan): autorun.inf – cơ chế tự chạy mà worm USB hay dùng
-  Đã quét 4 file: 1 nguy hiểm, 1 đáng ngờ, 2 sạch
+  Đã quét 4 file: 1 nguy hiểm, 1 đáng ngờ, 0 chưa quét đủ, 2 sạch
   KẾT LUẬN: NGUY HIỂM – dấu hiệu: Keylogger (ghi phím), Stealer (đánh cắp dữ liệu), Trojan / ngụy trang, Worm (tự lây lan)
 ```
 
-**Bốn kết luận** và **mã thoát** (dùng được trong script/CI):
-
-| Kết luận | JSON `verdict` | Mã thoát | Ý nghĩa |
-|---|---|---|---|
-| SẠCH | `clean` | `0` | Đã kiểm tra **toàn bộ** nội dung và không thấy dấu hiệu nguy hiểm |
-| CHƯA QUÉT ĐỦ | `incomplete` | `4` | Không thấy dấu hiệu nguy hiểm, nhưng **có phần chưa kiểm tra được**: file có mật khẩu, file nén hỏng, định dạng chưa hỗ trợ (CAB, ISO, WIM, Zstandard…), engine lỗi/timeout, vượt giới hạn. **Không được coi là sạch** |
-| ĐÁNG NGỜ | `suspicious` | `1` | Có dấu hiệu cần xem lại |
-| NGUY HIỂM | `malicious` | `2` | Có dấu hiệu mạnh hoặc trùng mã độc đã biết |
-
-Mã `3` là lỗi (không đọc được file, lỗi ngoài dự kiến). Lỗi xử lý **không bao giờ** cho ra kết luận SẠCH.
-Khi vừa có dấu hiệu nguy hiểm vừa có phần chưa quét, kết luận theo dấu hiệu và kèm ghi chú `CHƯA ĐẦY ĐỦ`;
-JSON luôn có `"complete"` và danh sách `incomplete` ghi rõ từng phần chưa kiểm tra.
-
-**Báo cáo JSON** (`--json`) có hai trường để tích hợp ổn định:
-
-- `schema_version` (hiện là `1`): chỉ tăng khi một trường bị đổi tên, xóa hoặc đổi nghĩa. Thêm trường mới thì giữ
-  nguyên, nên công cụ đọc báo cáo cứ bỏ qua trường lạ là tương thích. Một test trong repo khóa các trường của bản 1.
-- `rules_version`: mã 12 ký tự **tự sinh từ nội dung bộ luật** (chỉ dấu heuristic, ngưỡng điểm, luật YARA đã nạp,
-  danh sách mã băm). Cùng bộ luật thì cùng mã trên mọi máy; `rules_components` cho biết phần nào đã đổi. Nhờ đó
-  hai lần quét hay hai lần benchmark luôn biết có dùng cùng bộ luật hay không. Danh sách mã băm cập nhật hằng tuần
-  nên `rules_version` cũng đổi hằng tuần, đó là điều đúng vì khả năng phát hiện đã đổi.
-
-```json
-{"schema_version": 1, "version": "0.10.0", "rules_version": "2e803535739a",
- "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
- "engines": {…}, "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
-```
-
-## Cách chấm điểm
-
-Mỗi phát hiện có mức độ `LOW` (10) · `MEDIUM` (30) · `HIGH` (60) · `CRITICAL` (100) và thuộc một nhóm
-hành vi (keylogger, worm…). Điểm của một file = tổng mức **nặng nhất của từng nhóm** (tối đa 100), nên nhiều
-bằng chứng cho cùng một hành vi không bị cộng dồn, còn nhiều hành vi khác nhau thì cộng lại.
-
-| Điểm | Kết luận |
-|---|---|
-| < 30 | SẠCH |
-| 30 – 79 | ĐÁNG NGỜ |
-| ≥ 80, hoặc có phát hiện CRITICAL (trùng mã băm, ClamAV, YARA critical) | NGUY HIỂM |
-
-## Mở rộng
-
-**Thêm luật YARA** – bỏ file `.yar` vào `archive_guard/data/rules/` hoặc dùng `--yara`. Phần `meta` quyết định điểm:
-
-```yara
-rule My_Keylogger {
-    meta:
-        description = "Keylogger viết bằng Python"
-        severity = "high"          // low | medium | high | critical
-        category = "keylogger"
-    strings:
-        $a = "pynput.keyboard"
-        $b = "smtplib"
-    condition:
-        all of them
-}
-```
-
-Bộ luật cộng đồng nên thử: [Yara-Rules/rules](https://github.com/Yara-Rules/rules),
-[Neo23x0/signature-base](https://github.com/Neo23x0/signature-base).
-
-**Thêm mã băm của riêng bạn** – tạo file text, mỗi dòng `mã_băm [tên_họ]` (MD5/SHA1/SHA256, dòng `#` là
-chú thích), rồi chạy `--hashes file.txt`.
-
-**Thêm chỉ dấu hành vi** – sửa danh sách `_INDICATORS` trong `archive_guard/rules.py`.
-
-## Cấu trúc dự án
-
-```text
-archive_guard/
-├── cli.py          # dòng lệnh, in báo cáo, xuất JSON
-├── scanner.py      # điều phối quét, đệ quy file nén, chấm điểm
-├── extract.py      # đọc ZIP/RAR/7z/TAR/GZ trong bộ nhớ, giới hạn chống zip bomb
-├── rules.py        # luật tên file, loại file, chỉ dấu hành vi, danh sách mã băm
-├── engines.py      # YARA và ClamAV (tùy chọn)
-├── malwarebazaar.py  # tải mã băm theo họ mã độc từ MalwareBazaar vào cache
-├── benchmark.py    # đo precision/recall/tỷ lệ báo nhầm trên bộ dữ liệu có nhãn
-├── isolate.py      # --isolate: chạy worker, hard timeout, giới hạn RAM, dọn cây process
-└── data/
-    ├── known_bad.txt       # mã băm mặc định (EICAR)
-    ├── malwarebazaar.txt   # mã băm theo họ, GitHub Actions cập nhật hằng tuần
-    └── rules/*.yar     # luật YARA đi kèm
-tests/test_scanner.py   # test – mọi mẫu thử được tạo trong bộ nhớ
-```
+| Kết luận | Mã thoát | Ý nghĩa |
+|---|---|---|
+| SẠCH | `0` | Đã kiểm tra **toàn bộ** nội dung, không thấy dấu hiệu nguy hiểm |
+| ĐÁNG NGỜ | `1` | Có dấu hiệu cần xem lại |
+| NGUY HIỂM | `2` | Dấu hiệu mạnh hoặc trùng mã độc đã biết |
+| *(lỗi)* | `3` | Không đọc được file, worker crash… |
+| CHƯA QUÉT ĐỦ | `4` | Có phần chưa kiểm tra được – **không được coi là sạch** |
 
 ## Độ chính xác đã đo
 
-Chi tiết, phương pháp và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md). Tóm tắt bản 0.8.0, đo trên
-**bộ kiểm tra 81 gói chưa từng dùng để chỉnh luật** (số trong ngoặc là bản 0.7.0 trước khi sửa 2 lỗi luật):
+Trên **81 gói phần mềm sạch chưa từng dùng để chỉnh luật** (bản 0.8.0): phần mềm thông dụng bị gắn ĐÁNG NGỜ
+**4,2%**, NGUY HIỂM **0%**. **Khả năng phát hiện mã độc thật (recall) chưa được đo.**
+Chi tiết và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
-| Phần mềm sạch | Bị gắn ĐÁNG NGỜ | Bị gắn NGUY HIỂM |
-|---|---|---|
-| Thông dụng (71 gói) | 4,2% (11,3%) | 0% (0%) |
-| Công cụ hai mặt: hook bàn phím, tiêm tiến trình, kiểm thử xâm nhập (10 gói) | 30% (30%) | 0% (0%) |
+## Tài liệu
 
-**Khả năng phát hiện mã độc thật (recall) chưa được đo.** docs/BENCHMARK.md có quy trình để tự đo trong máy ảo
-bằng công cụ `python -m archive_guard.benchmark`.
-
-## Chạy test
-
-```bash
-pip install -e ".[yara,dev]"
-pytest -q
-```
-
-Test dùng chuỗi **EICAR** (file thử nghiệm antivirus chuẩn, vô hại) và các "mẫu giả" chỉ chứa chuỗi văn bản,
-tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
-
-## Giới hạn cần biết
-
-- Phát hiện dựa trên heuristic nên **có thể báo nhầm**: thư viện hợp pháp làm việc với Windows API
-  (vd. `pywin32`, `pynput`) dùng chính các hàm mà keylogger/trojan dùng và sẽ bị đánh dấu ĐÁNG NGỜ.
-- File bị pack chỉ được **cảnh báo là đã pack** (ĐÁNG NGỜ); các chuỗi hành vi bên trong vẫn bị giấu nên không biết
-  nó là keylogger hay worm. Phần mềm hợp pháp dùng Themida/VMProtect (vd. game có chống crack) cũng bị báo
-  ĐÁNG NGỜ; UPX đơn thuần chỉ ở mức LOW. Bật ClamAV/YARA để tăng độ phủ.
-- RAM đỉnh trong trường hợp xấu nhất xấp xỉ `--max-depth × --max-size` (mỗi tầng lồng giữ nội dung của tầng
-  cha trong lúc quét tầng con), tức khoảng 1,3 GB với mặc định. Máy yếu nên hạ `--max-size`.
-- YARA và ClamAV chỉ được dùng phần thời gian còn lại của `--timeout`; hết giờ thì ClamAV bị dừng và kết quả là
-  chưa quét đủ.
-- Không có `--isolate`, hạn thời gian được kiểm tra giữa các file con; riêng việc quét nội dung một file (tối đa `--max-size`) không bị
-  ngắt giữa chừng; dùng `--isolate` để có hard timeout dừng được cả thao tác đang treo.
-- Mọi lớp kiểm tra đọc **trọn nội dung** mỗi file (file 256 MB mất khoảng 25 giây). File con lớn hơn `--max-size`
-  (mặc định 256 MB), file bị khóa mật khẩu hay lồng quá sâu thì **không quét được** và được đánh dấu rõ:
-  kết luận là `CHƯA QUÉT ĐỦ` (mã thoát `4`), không bao giờ là SẠCH.
-- ClamAV không quét file trên 2 GB. Nếu dùng `clamdscan`, hãy tự nâng `MaxFileSize`/`MaxScanSize` trong
-  `clamd.conf` (mặc định chỉ 100 MB).
-- Mã băm chỉ bắt được **đúng** mẫu đã có trên MalwareBazaar: đổi một byte là mã băm khác. Đây là lớp bổ sung
-  cho heuristic, không thay thế nó.
-- Quét chính repo này sẽ ra NGUY HIỂM, vì `rules.py` và file test chứa đúng các chuỗi cần dò (chuyện thường gặp với mọi bộ luật antivirus).
-- Chưa phân tích sâu PDF và macro Office (chỉ phát hiện có macro), chưa mở RAR mã hóa cả tên file.
-
-## Thử nghiệm an toàn
-
-Nếu muốn thử với mẫu mã độc thật (vd. từ MalwareBazaar), **chỉ làm trong máy ảo không có dữ liệu cá nhân**.
-ArchiveGuard không chạy file nào, nhưng chính file mẫu vẫn nguy hiểm nếu bị mở nhầm.
-
-## Đóng góp
-
-Pull request luôn được chào đón: thêm chỉ dấu, luật YARA, định dạng nén mới, hoặc báo nhầm/bỏ sót kèm mô tả.
-Đừng đính kèm mã độc thật vào issue – hãy gửi mã băm SHA256.
+| Bạn muốn | Đọc |
+|---|---|
+| Mọi tùy chọn, định dạng JSON, `--isolate`, cập nhật mã băm, giới hạn cần biết | [docs/USAGE.md](docs/USAGE.md) |
+| Hiểu code: module, luồng quét, ngân sách, **muốn sửa X thì sửa ở đâu** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Cách chấm điểm, thêm luật / YARA / mã băm | [docs/RULES.md](docs/RULES.md) |
+| Số liệu đo, phương pháp, cách tự đo recall | [docs/BENCHMARK.md](docs/BENCHMARK.md) |
+| Đóng góp code, chạy test, quy trình sửa luật | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Báo lỗ hổng bảo mật | [SECURITY.md](SECURITY.md) |
+| Lịch sử thay đổi | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Giấy phép
 

@@ -1,0 +1,11 @@
+# Mỗi tuần mở PR khi GitHub Action hoặc thư viện Python có phiên bản mới; CI sẽ kiểm tra PR đó.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly

@@ -7,8 +7,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import engines, malwarebazaar, rules
-from .extract import (ARCHIVE_KINDS, ArchiveError, Budget, BudgetExceeded, EncryptedArchive, archive_kind,
-                      iter_members, unsupported_container)
+from .extract import (
+    ARCHIVE_KINDS,
+    ArchiveError,
+    Budget,
+    BudgetExceeded,
+    EncryptedArchive,
+    archive_kind,
+    iter_members,
+    unsupported_container,
+)
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
 DATA_DIR = Path(__file__).parent / "data"

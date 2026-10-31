@@ -9,3 +9,4 @@ venv/
 baocao*.json
 # đừng bao giờ commit mẫu mã độc thật
 samples/
+.ruff_cache/

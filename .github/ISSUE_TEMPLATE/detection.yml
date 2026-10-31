@@ -1,0 +1,42 @@
+name: Báo nhầm / bỏ sót
+description: File sạch bị gắn cờ, hoặc mã độc không bị phát hiện
+labels: [detection]
+body:
+  - type: markdown
+    attributes:
+      value: "⚠️ **Không đính kèm mã độc thật.** Chỉ cần mã SHA-256; với phần mềm sạch, ghi tên gói và phiên bản để người khác tải lại."
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Loại
+      options:
+        - Báo nhầm (file sạch bị gắn ĐÁNG NGỜ/NGUY HIỂM)
+        - Bỏ sót (mã độc bị coi là SẠCH)
+    validations:
+      required: true
+  - type: input
+    id: sha256
+    attributes:
+      label: SHA-256 của file
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Nguồn của file
+      placeholder: "vd. pip download ruff==0.17.3, hoặc trang MalwareBazaar của mẫu"
+  - type: input
+    id: version
+    attributes:
+      label: Phiên bản ArchiveGuard và rules_version
+      description: "`archiveguard -V` và trường `rules_version` trong báo cáo JSON"
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Phát hiện liên quan
+      description: Phần báo cáo (mã luật, dòng "khớp:") gây báo nhầm, hoặc kết luận của file bị bỏ sót
+      render: text
+    validations:
+      required: true

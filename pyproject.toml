@@ -27,3 +27,13 @@ include = ["archive_guard*"]
 
 [tool.setuptools.package-data]
 archive_guard = ["data/*.txt", "data/rules/*.yar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# Chỉ bắt lỗi thật: cú pháp (E9), pyflakes (F: tên chưa định nghĩa, import thừa…), thứ tự import (I)
+select = ["E9", "F", "I"]
