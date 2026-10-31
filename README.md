@@ -47,18 +47,21 @@ archiveguard file.zip --json baocao.json    # xuất báo cáo JSON
 archiveguard Downloads/ --require-sandbox   # production: từ chối quét nếu thiếu sandbox file/mạng
 ```
 
-Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm):
+Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm; `[T…]` là mã MITRE ATT&CK, `khả năng` = một mình chưa đủ gắn cờ):
 
 ```text
 == hoa-don-thang-10.zip ==
   [NGUY HIỂM 100] hoa-don-thang-10.zip > HoaDon_T10.pdf.exe
-      HIGH     Trojan / ngụy trang: Đuôi kép giả mạo: trông như .pdf nhưng thực ra là .exe
-      HIGH     Keylogger (ghi phím): Chứa nhãn ghi phím đặc trưng của keylogger
+      HIGH     Trojan / ngụy trang: Đuôi kép giả mạo: trông như .pdf nhưng thực ra là .exe [T1036.007]
+      HIGH     Keylogger (ghi phím): Chứa nhãn ghi phím đặc trưng của keylogger [T1056.001]
                khớp: [backspace], [capslock], [enter]
-      MEDIUM   Stealer (đánh cắp dữ liệu): Gửi dữ liệu ra ngoài qua Telegram bot / Discord webhook / SMTP
+      HIGH     Keylogger (ghi phím): Bắt phím VÀ gửi dữ liệu ra ngoài – chuỗi hành vi của keylogger [T1056.001]
+               khớp: api.telegram.org/bot, getasynckeystate
+      MEDIUM   Stealer (đánh cắp dữ liệu): Gửi dữ liệu ra ngoài qua Telegram bot / Discord webhook / SMTP [T1567] · khả năng
                khớp: api.telegram.org/bot
+      LOW      Đáng chú ý: Có file thực thi/script .exe [T1204.002] · khả năng
   [ĐÁNG NGỜ 30] hoa-don-thang-10.zip > autorun.inf
-      MEDIUM   Worm (tự lây lan): autorun.inf – cơ chế tự chạy mà worm USB hay dùng
+      MEDIUM   Worm (tự lây lan): autorun.inf – cơ chế tự chạy mà worm USB hay dùng [T1091]
   Đã quét 4 file: 1 nguy hiểm, 1 đáng ngờ, 0 chưa quét đủ, 2 sạch
   KẾT LUẬN: NGUY HIỂM – dấu hiệu: Keylogger (ghi phím), Stealer (đánh cắp dữ liệu), Trojan / ngụy trang, Worm (tự lây lan)
 ```
@@ -73,8 +76,11 @@ Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm):
 
 ## Độ chính xác đã đo
 
-Trên **81 gói phần mềm sạch chưa từng dùng để chỉnh luật** (bản 0.8.0): phần mềm thông dụng bị gắn ĐÁNG NGỜ
-**4,2%**, NGUY HIỂM **0%**. **Khả năng phát hiện mã độc thật (recall) chưa được đo.**
+Trên **70 gói phần mềm sạch chưa từng dùng để chỉnh luật** (bản 0.12.0): phần mềm thông dụng bị gắn ĐÁNG NGỜ
+**2,0%**, công cụ hai mặt (hook bàn phím, tiêm tiến trình, kiểm thử xâm nhập) **10,5%**, NGUY HIỂM **0%**.
+API mà phần mềm hợp pháp cũng dùng chỉ được coi là *khả năng*; kết luận NGUY HIỂM cần nhiều chỉ dấu độc lập
+([cách chấm điểm](docs/RULES.md#cách-chấm-điểm), có mã MITRE ATT&CK cho từng luật).
+**Khả năng phát hiện mã độc thật (recall) chưa được đo.**
 Chi tiết và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
 ## Tài liệu

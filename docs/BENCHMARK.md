@@ -103,6 +103,68 @@ Kết quả thô: [`results-2026-10-31-holdout-before.md`](../benchmark/results-
 | pip, virtualenv (bộ kiểm tra) | `BACKDOOR.REVERSE_SHELL` | `pty.spawn(` trong một đoạn ví dụ của thư viện `rich` mà pip đóng gói kèm. Cùng kiểu yếu điểm: luật mức HIGH dựa vào **một chuỗi đơn lẻ** |
 | cmake, pygame, Qt, wxPython | `KEYLOG.API` | Thư viện giao diện dùng đúng tổ hợp API của keylogger; giới hạn bản chất của heuristic |
 
+## Vòng 3 – Tách khả năng và hành vi (2026-10-31, bản 0.12.0)
+
+**Vấn đề:** 62,5% công cụ hai mặt bị gắn cờ (vòng 1). Gần như toàn bộ do **một** luật "khả năng" đứng một mình:
+`KEYLOG.API` (pynput, keyboard, AutoHotkey, pygame, Qt…) và `INJECT.PROCESS` (frida, pymem, debugpy). Có
+`SetWindowsHookExA` chỉ chứng minh chương trình *có thể* bắt phím, không chứng minh nó là keylogger.
+
+**Thay đổi** (thiết kế từ các ca báo nhầm ở vòng 1–2, trước khi dựng bộ kiểm tra thứ ba):
+
+1. **Tách severity và confidence**, gắn mã MITRE ATT&CK cho từng luật (`RULE_META`). 9 luật là *khả năng*
+   (`confidence: low`); một mình chúng không gắn cờ trừ khi một file có khả năng ở ≥ 3 nhóm hành vi.
+2. **Luật ngữ cảnh** đòi khả năng + bằng chứng bổ trợ trong cùng file: `KEYLOG.EXFIL` (bắt phím + gửi ra ngoài),
+   `STEAL.EXFIL`, `INJECT.LOADER` (tiêm mã + né máy ảo/tải payload).
+3. **NGUY HIỂM cần ≥ 2 chỉ dấu độc lập** (trừ mã băm/ClamAV/YARA critical); một luật HIGH đơn lẻ dừng ở ĐÁNG NGỜ.
+4. **So khớp theo token:** tên họ mã độc không được nối tiếp bằng chữ thường (`dcrates` ≠ `DcRat`, nhưng
+   `DcRatBuilder` vẫn khớp). Sửa ca ruff còn tồn tại từ vòng 2.
+5. `BACKDOOR.REVERSE_SHELL` cần cả phần mở shell **và** phần kết nối mạng. Sửa ca pip/virtualenv (`pty.spawn(`).
+
+**Hiệu chỉnh ngưỡng** chỉ dùng hai bộ đã thấy (190 gói). Trên đó, file chỉ có khả năng chứa tối đa 2 nhóm
+(Squirrel `Setup.exe`: tải file + tự khởi động); mọi ngưỡng từ 2 đến 99 cho cùng kết quả. Chọn **3**: giá trị
+thấp nhất (giữ recall) mà vẫn cao hơn mức lớn nhất đã thấy ở phần mềm sạch.
+
+**Phương pháp kiểm tra:** bộ kiểm tra thứ ba gồm 70 gói ([`benchmark/holdout-corpus-2.txt`](../benchmark/holdout-corpus-2.txt),
+không trùng bộ nào trước), đo bằng **luật cũ 0.11.0 trước**, rồi mới đo bằng 0.12.0. Recall chỉ được kiểm tra bằng
+22 mẫu **tổng hợp** (`tests/positives.py`, chuỗi vô hại theo kiểu mã độc phổ biến) – xem giới hạn bên dưới.
+
+| Bộ dữ liệu | Nhóm | Trước (0.11.0) | Sau (0.12.0) |
+|---|---|---|---|
+| **Bộ kiểm tra 3** (khách quan) | Thông dụng, 51 gói | 5,9% (2,0–15,9%) | **2,0%** (0,3–10,3%) |
+| | Hai mặt, 19 gói | 10,5% (2,9–31,4%) | 10,5% (2,9–31,4%) |
+| | Gắn NGUY HIỂM, 70 gói | 0% | 0% (0–5,2%) |
+| Mẫu tổng hợp, 22 mẫu | ≥ ĐÁNG NGỜ | 22/22 | **22/22** |
+| | NGUY HIỂM | 5/22 | 8/22 |
+| Bộ 1 (đã dùng để chỉnh, thiên lệch) | Thông dụng, 93 gói | 6,5% | 2,2% |
+| | Hai mặt, 16 gói | 62,5% (38,6–81,5%) | **6,2%** (1,1–28,3%) |
+| Bộ kiểm tra 2 (đã thấy ở vòng 2, thiên lệch) | Thông dụng, 71 gói | 4,2% | 0% (0–5,1%) |
+| | Hai mặt, 10 gói | 30% | 20% |
+
+Kết quả thô: [`results-2026-10-31-holdout2-before.md`](../benchmark/results-2026-10-31-holdout2-before.md),
+[`…-holdout2-after.md`](../benchmark/results-2026-10-31-holdout2-after.md),
+[`…-v3-benign.md`](../benchmark/results-2026-10-31-v3-benign.md), [`…-v3-holdout1.md`](../benchmark/results-2026-10-31-v3-holdout1.md).
+
+**Đọc kết quả cho đúng:**
+
+- Con số **62,5% → 6,2%** đo trên bộ đã dùng để thiết kế thay đổi, nên lạc quan. Nó cho thấy cơ chế xử lý đúng
+  loại lỗi nhắm tới: 9/10 ca hai mặt biến mất, ca còn lại là impacket (chứa thật lệnh trích xuất mật khẩu).
+- Trên bộ kiểm tra khách quan, nhóm hai mặt **không đổi**: hai ca báo nhầm ở đó thuộc loại khác, không phải khả năng
+  đơn lẻ (masky: file `.exe` bị nén entropy cao; regedit: script `.wsf`). Nhóm thông dụng giảm 3 → 1 ca
+  (playwright: `DOWNLOAD.API`; pygame-ce: `KEYLOG.API`). Khoảng tin cậy trước/sau vẫn chồng lên nhau.
+- **Không ca báo nhầm nào ở mức NGUY HIỂM** trên cả ba bộ ngoài impacket.
+- **Đánh đổi recall đã biết:** mã độc chỉ để lộ **một** khả năng (vd. chỉ có `SetWindowsHookEx`, chuỗi gửi dữ liệu
+  bị mã hóa) giờ không bị heuristic gắn cờ. Mã băm/YARA/ClamAV không bị ảnh hưởng. Chưa đo được tác động này
+  trên mã độc thật (Kết quả 2).
+
+**Còn tồn tại** (không chỉnh trên bộ kiểm tra 3 để giữ nó khách quan):
+
+| Mẫu | Luật | Nguyên nhân |
+|---|---|---|
+| bufbuild-buf (bộ kiểm tra 3) | `DOWNLOAD.EXEC_PS` | File nhị phân Go chứa đủ chuỗi tải + chạy PowerShell; một luật confidence `high` đơn lẻ |
+| masky (bộ kiểm tra 3) | `PACKER.ENTROPY` | Công cụ kiểm thử xâm nhập kèm `.exe` bị nén |
+| regedit (bộ kiểm tra 3), pywin32, electron-winstaller | `NAME.RISKY_TYPE` | Script `.wsf/.sct/.lnk` hợp pháp; giữ ở `medium` vì đây là kiểu phát tán mã độc rất phổ biến (T1204.002) |
+| impacket, bloodhound, pypykatz | `STEAL.CREDENTIAL_DUMP` | Công cụ tấn công thật – gắn cờ là đúng về nội dung, sai về ý định |
+
 ## Kết quả 2 – Phát hiện mã độc thật (recall): **CHƯA ĐO**
 
 Đây là con số quan trọng nhất và hiện **chưa có**. Lý do: môi trường phát triển không tải được mẫu mã độc,

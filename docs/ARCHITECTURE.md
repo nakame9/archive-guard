@@ -12,7 +12,7 @@ archive-guard/
 │   ├── sandbox.py          # sandbox hệ điều hành worker tự áp: Landlock, seccomp, network namespace, sandbox-exec
 │   ├── scanner.py          # điều phối: đệ quy file nén, gọi các lớp phát hiện, chấm điểm, rules_version
 │   ├── extract.py          # giải nén streaming ZIP/TAR/GZ/7z/RAR + ngân sách tài nguyên (Budget)
-│   ├── rules.py            # luật heuristic: tên file, loại file, packer, chỉ dấu hành vi, đọc mã băm
+│   ├── rules.py            # luật heuristic: tên file, loại file, packer, chỉ dấu hành vi, RULE_META (confidence, ATT&CK), đọc mã băm
 │   ├── engines.py          # YARA và ClamAV (tùy chọn)
 │   ├── malwarebazaar.py    # tải mã băm theo họ từ MalwareBazaar
 │   ├── benchmark.py        # đo precision/recall/tỷ lệ báo nhầm trên dữ liệu có nhãn
@@ -112,9 +112,9 @@ Thêm định dạng mới = thêm một hàm như vậy, đăng ký trong `iter
 
 | Muốn | Sửa | Test ở |
 |---|---|---|
-| Thêm/chỉnh chỉ dấu hành vi | `_INDICATORS` trong `rules.py` (xem [RULES.md](RULES.md)) | `tests/test_detection.py` |
+| Thêm/chỉnh chỉ dấu hành vi | `_INDICATORS` + `RULE_META` trong `rules.py` (xem [RULES.md](RULES.md)) | `tests/test_detection.py`, `tests/test_confidence.py` |
 | Thêm luật tên file, packer | `check_name()`, `check_packer()` trong `rules.py` | `tests/test_detection.py` |
-| Đổi ngưỡng điểm, cách tính kết luận | `score_and_verdict()`, `VERDICTS` trong `scanner.py` | `tests/test_detection.py`, `tests/test_cli.py` |
+| Đổi ngưỡng điểm, cách tính kết luận | `score_and_verdict()`, `CAPABILITY_MIN_CATEGORIES`, `VERDICTS` trong `scanner.py` | `tests/test_confidence.py`, `tests/test_cli.py` |
 | Thêm định dạng nén | `extract.py`: hàm đọc mới + `iter_members()` + `MAGIC` | `tests/test_archives.py`, `tests/test_budget.py` |
 | Báo định dạng chứa file chưa hỗ trợ | `UNSUPPORTED` trong `extract.py` | `tests/test_archives.py` |
 | Đổi giới hạn tài nguyên mặc định | tham số `Scanner.__init__` + tùy chọn trong `cli.py` | `tests/test_budget.py` |
@@ -133,6 +133,8 @@ Thêm định dạng mới = thêm một hàm như vậy, đăng ký trong `iter
 |---|---|
 | `tests/helpers.py` | Tạo mẫu thử trong bộ nhớ (`make_zip`, `make_7z`, `make_pe`, `tar_gz`, EICAR…); repo không chứa mã độc thật |
 | `tests/test_detection.py` | Luật phát hiện, packer, YARA, hồi quy cho các lỗi luật đã sửa |
+| `tests/test_confidence.py` | Khả năng đơn lẻ không gắn cờ, luật ngữ cảnh, NGUY HIỂM cần 2 chỉ dấu độc lập, bộ mẫu tổng hợp không tụt kết luận |
+| `tests/positives.py` | 22 mẫu dương tính **tổng hợp** (chuỗi vô hại theo kiểu mã độc phổ biến); dùng cho test và benchmark hồi quy |
 | `tests/test_archives.py` | Định dạng nén, mật khẩu, định dạng chưa hỗ trợ, `CHƯA QUÉT ĐỦ` |
 | `tests/test_budget.py` | Chống archive bomb: ngân sách, streaming, giới hạn entry, timeout engine |
 | `tests/test_cli.py` | Mã thoát, hợp đồng JSON `schema_version` 1, `rules_version` |

@@ -37,9 +37,13 @@ def yara_scan(compiled, data: bytes, timeout: int = 60) -> list[Finding]:
     for rules in compiled:
         for m in rules.match(data=data, timeout=timeout):
             meta = m.meta
-            out.append(Finding(f"YARA.{m.rule}", _SEVERITY.get(str(meta.get("severity", "")).lower(), HIGH),
-                               str(meta.get("category", "generic")), str(meta.get("description", m.rule)),
-                               engine="yara"))
+            sev = _SEVERITY.get(str(meta.get("severity", "")).lower(), HIGH)
+            confidence = str(meta.get("confidence", "")).lower()
+            if confidence not in ("low", "medium", "high"):
+                confidence = "high" if sev == CRITICAL else "medium"
+            out.append(Finding(f"YARA.{m.rule}", sev, str(meta.get("category", "generic")),
+                               str(meta.get("description", m.rule)), engine="yara", confidence=confidence,
+                               attack=str(meta.get("attack", ""))))
     return out
 
 

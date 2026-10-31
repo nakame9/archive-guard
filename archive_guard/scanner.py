@@ -26,14 +26,35 @@ BOMB_MIN_SIZE = 50 * MB  # chỉ xét tỷ lệ nén với file con lớn, trán
 VERDICTS = ("clean", "incomplete", "suspicious", "malicious")
 
 
+# Số nhóm hành vi KHÁC nhau mà chỉ dấu "khả năng" (confidence low) phải đủ để được tính khi không có bằng chứng
+# nào mạnh hơn. Hiệu chỉnh trên bộ phần mềm sạch đã thấy (benchmark/benign-corpus.txt, holdout-corpus-1.txt),
+# KHÔNG trên bộ kiểm tra cuối – xem docs/BENCHMARK.md, vòng 3.
+CAPABILITY_MIN_CATEGORIES = 3
+
+
 def score_and_verdict(findings) -> tuple[int, str]:
-    # Mỗi nhóm hành vi chỉ tính mức nặng nhất: nhiều bằng chứng cho CÙNG một hành vi không cộng dồn,
-    # còn nhiều hành vi KHÁC nhau (vd. ghi phím + gửi dữ liệu ra ngoài) thì cộng lại.
-    worst = {}
+    """Điểm 0–100 và kết luận. severity quyết định điểm; confidence quyết định có được tính và mức kết luận.
+
+    - Chỉ có "khả năng" (API mà phần mềm hợp pháp cũng dùng) ở ít nhóm hành vi → không tính, kết luận sạch.
+    - "nguy hiểm" cần ≥ 2 bằng chứng độc lập: 2 luật medium/high khác nhau, hoặc 1 luật + các khả năng ở nhóm
+      khác (mỗi nhóm tính ½) – trừ phát hiện CRITICAL có độ tin cậy cao (mã băm, ClamAV, YARA critical).
+    """
+    strong = {f.rule for f in findings if f.confidence != "low"}
+    weak_cats = {f.category for f in findings if f.confidence == "low" and f.category != "generic"}
+    if not strong and len(weak_cats) < CAPABILITY_MIN_CATEGORIES:
+        return 0, "clean"
+    # Mỗi nhóm hành vi tính mức nặng nhất (+1 bậc nếu có ≥ 2 luật mạnh khác nhau cùng nhóm);
+    # nhiều hành vi KHÁC nhau (vd. ghi phím + gửi dữ liệu ra ngoài) thì cộng lại.
+    worst, rules_in = {}, {}
     for f in findings:
         worst[f.category] = max(worst.get(f.category, 0), f.severity)
-    score = min(100, sum(rules.SEVERITY_SCORE[s] for s in worst.values()))
-    if score >= 80 or CRITICAL in worst.values():
+        if f.confidence != "low":
+            rules_in.setdefault(f.category, set()).add(f.rule)
+    score = min(100, sum(rules.SEVERITY_SCORE[s] + (30 if len(rules_in.get(c, ())) >= 2 else 0)
+                         for c, s in worst.items()))
+    if any(f.severity == CRITICAL and f.confidence == "high" for f in findings):
+        return 100, "malicious"
+    if score >= 80 and len(strong) + 0.5 * len(weak_cats) >= 2:
         return score, "malicious"
     return score, "suspicious" if score >= 30 else "clean"
 

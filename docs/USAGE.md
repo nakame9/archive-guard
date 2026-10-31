@@ -60,7 +60,7 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.11.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.12.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
@@ -73,6 +73,10 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 - `complete` / `incomplete`: có phần nào chưa kiểm tra được không, và cụ thể là phần nào.
 - `sandbox` (mỗi báo cáo): các lớp sandbox worker đã bật; `isolation` (đầu file): cấu hình cô lập, `null` khi `--no-isolate`.
 - `worker_error`: lý do worker thất bại (nếu có).
+- Mỗi phát hiện trong `files[].findings`: `rule`, `severity`, `category`, `title`, `detail`, `engine`,
+  `confidence` (`low` = chỉ là khả năng, `medium`, `high`) và `attack` (mã kỹ thuật MITRE ATT&CK, có thể rỗng).
+  Hai trường cuối thêm ở bản 0.12.0, `schema_version` vẫn là 1. Một file SẠCH vẫn có thể liệt kê phát hiện
+  `confidence: low` (khả năng chưa đủ để gắn cờ) – xem [RULES.md](RULES.md#cách-chấm-điểm).
 
 ## Cô lập và sandbox (mặc định)
 
@@ -161,10 +165,13 @@ Cache được **gộp dần** (không xóa mã cũ) tại `~/.cache/archive-gua
 ## Giới hạn cần biết
 
 **Phát hiện**
-- Heuristic **có thể báo nhầm**: thư viện hợp pháp làm việc với Windows API (vd. `pywin32`, `pynput`) dùng chính
-  các hàm mà keylogger/trojan dùng. Số liệu đo: [BENCHMARK.md](BENCHMARK.md).
+- Heuristic **có thể báo nhầm**. Từ 0.12.0, API mà phần mềm hợp pháp cũng dùng (hook bàn phím, tiêm tiến trình…)
+  chỉ được coi là *khả năng* và một mình không gắn cờ; nhưng công cụ kiểm thử xâm nhập (impacket, pypykatz…) vẫn bị
+  gắn cờ vì chúng *thật sự* chứa lệnh trích xuất mật khẩu. Số liệu đo: [BENCHMARK.md](BENCHMARK.md).
+- Đổi lại, mã độc chỉ để lộ **một** khả năng (vd. chỉ có `SetWindowsHookEx`, không có kênh gửi dữ liệu) sẽ không bị
+  gắn cờ bằng heuristic; mã băm, YARA và ClamAV vẫn hoạt động như cũ.
 - File bị pack chỉ được **cảnh báo là đã pack**; chuỗi hành vi bên trong vẫn bị giấu. Phần mềm hợp pháp dùng
-  Themida/VMProtect cũng bị báo ĐÁNG NGỜ; UPX đơn thuần chỉ ở mức LOW.
+  Themida/VMProtect cũng bị báo ĐÁNG NGỜ; UPX đơn thuần chỉ là khả năng, không gắn cờ.
 - Mã băm chỉ bắt được **đúng** mẫu đã có trên MalwareBazaar: đổi một byte là mã băm khác.
 - Chưa phân tích sâu PDF và macro Office (chỉ phát hiện có macro), chưa mở RAR mã hóa cả tên file.
 - Quét chính repo này sẽ ra NGUY HIỂM, vì `rules.py` và test chứa đúng các chuỗi cần dò.

@@ -31,12 +31,20 @@ CATEGORIES = {
 
 @dataclass
 class Finding:
+    """severity = mức tác hại NẾU đúng là mã độc; confidence = mức chắc chắn rằng đó là hành vi độc hại."""
     rule: str
     severity: int
     category: str
     title: str
     detail: str = ""
     engine: str = "heuristic"
+    confidence: str = ""  # low | medium | high; để trống = lấy theo RULE_META
+    attack: str = ""      # mã kỹ thuật MITRE ATT&CK
+
+    def __post_init__(self):
+        confidence, attack = RULE_META.get(self.rule, _META_DEFAULT)
+        self.confidence = self.confidence or confidence
+        self.attack = self.attack or attack
 
     def to_dict(self):
         return {**asdict(self), "severity": SEVERITY_NAME[self.severity]}
@@ -141,25 +149,39 @@ def file_kind(data: bytes, name: str) -> str:
 # --- Chỉ dấu hành vi trong nội dung ---------------------------------------------------------
 # (mã luật, mức độ, nhóm, mô tả, [nhóm chuỗi…], số nhóm phải khớp, tổng số chuỗi phải khớp)
 # Chuỗi được so khớp không phân biệt hoa thường, cả dạng ASCII lẫn UTF-16 (chuỗi Windows).
+# Nhóm chuỗi dùng chung giữa luật "khả năng" và luật ngữ cảnh bên dưới
+_KEY_CAPTURE = ["SetWindowsHookExA", "SetWindowsHookExW", "GetAsyncKeyState", "GetRawInputData",
+                "WH_KEYBOARD_LL", "pynput.keyboard", "keyboard.on_press"]
+_EXFIL = ["api.telegram.org/bot", "discord.com/api/webhooks", "discordapp.com/api/webhooks",
+          "smtp.gmail.com", "smtp.yandex", "pastebin.com/raw"]
+_INJECT_API = ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread", "NtCreateThreadEx",
+               "RtlCreateUserThread", "QueueUserAPC", "SetThreadContext", "NtUnmapViewOfSection",
+               "ZwUnmapViewOfSection"]
+_BROWSER_CREDS = ["\\Google\\Chrome\\User Data", "\\Microsoft\\Edge\\User Data", "\\Mozilla\\Firefox\\Profiles",
+                  "Login Data", "logins.json", "key4.db", "encrypted_key", "CryptUnprotectData"]
+_WALLETS = ["wallet.dat", "\\Electrum\\wallets", "\\Exodus\\", "\\Ethereum\\keystore",
+            "Telegram Desktop\\tdata", "\\discord\\Local Storage\\leveldb", "nkbihfbeogaeaoehlefnkodbefgpgknn"]
+_ANTI_VM = ["VBoxService", "VBoxTray", "vmtoolsd", "vmwaretray", "SbieDll.dll",
+            "wine_get_unix_file_name", "vboxhook.dll", "VBOX__"]
+_DOWNLOAD_API = ["URLDownloadToFileA", "URLDownloadToFileW", "URLDownloadToCacheFile", "certutil -urlcache",
+                 "certutil.exe -urlcache", "bitsadmin /transfer", "Start-BitsTransfer", ".DownloadFile("]
+
 _INDICATORS = [
+    # --- Khả năng (confidence "low", xem RULE_META): phần mềm hợp pháp cũng dùng, một mình không đủ kết luận
     ("KEYLOG.API", MEDIUM, "keylogger", "Dùng API bắt phím kèm theo dõi cửa sổ/clipboard",
-     [["SetWindowsHookExA", "SetWindowsHookExW", "GetAsyncKeyState", "GetRawInputData",
-       "WH_KEYBOARD_LL", "pynput.keyboard", "keyboard.on_press"],
+     [_KEY_CAPTURE,
       ["GetForegroundWindow", "GetWindowTextA", "GetWindowTextW", "GetKeyboardLayout",
        "MapVirtualKeyA", "MapVirtualKeyW", "ToUnicodeEx", "GetClipboardData", "win32gui"]], 2, 2),
     ("KEYLOG.MARKERS", HIGH, "keylogger", "Chứa nhãn ghi phím đặc trưng của keylogger",
      [["[BACKSPACE]", "[ENTER]", "[CAPSLOCK]", "[SHIFT]", "[CTRL]", "[ESC]", "[DEL]", "[TAB]",
        "Key.space", "Key.enter", "Key.backspace", "keylog"]], 1, 3),
-    ("INJECT.PROCESS", HIGH, "trojan", "Tiêm mã vào tiến trình khác (process injection / hollowing)",
-     [["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread", "NtCreateThreadEx",
-       "RtlCreateUserThread", "QueueUserAPC", "SetThreadContext", "NtUnmapViewOfSection",
-       "ZwUnmapViewOfSection"]], 1, 3),
+    ("INJECT.PROCESS", HIGH, "trojan", "Có API tiêm mã vào tiến trình khác (debugger, công cụ hook cũng dùng)",
+     [_INJECT_API], 1, 3),
     ("PERSIST.AUTOSTART", LOW, "trojan", "Tự khởi động cùng Windows (Run key, Startup, tác vụ lập lịch)",
      [["CurrentVersion\\Run", "Winlogon\\Shell", "Winlogon\\Userinit", "schtasks /create",
        "\\Start Menu\\Programs\\Startup"]], 1, 1),
     ("DOWNLOAD.API", MEDIUM, "downloader", "Tải file từ Internet về máy",
-     [["URLDownloadToFileA", "URLDownloadToFileW", "URLDownloadToCacheFile", "certutil -urlcache",
-       "certutil.exe -urlcache", "bitsadmin /transfer", "Start-BitsTransfer", ".DownloadFile("]], 1, 1),
+     [_DOWNLOAD_API], 1, 1),
     ("DOWNLOAD.EXEC_PS", HIGH, "downloader", "PowerShell tải mã từ Internet rồi thực thi ngay",
      [["IEX(", "IEX (", "Invoke-Expression", "| iex"],
       ["DownloadString(", "DownloadData(", "Net.WebClient", "Invoke-WebRequest", "Invoke-RestMethod",
@@ -175,8 +197,7 @@ _INDICATORS = [
      [["AmsiUtils", "amsiInitFailed", "DisableRealtimeMonitoring", "Add-MpPreference -ExclusionPath",
        "DisableAntiSpyware", "sc stop WinDefend", "netsh advfirewall set allprofiles state off"]], 1, 1),
     ("EVADE.ANTI_VM", MEDIUM, "evasion", "Dò máy ảo/sandbox để né phân tích",
-     [["VBoxService", "VBoxTray", "vmtoolsd", "vmwaretray", "SbieDll.dll",
-       "wine_get_unix_file_name", "vboxhook.dll", "VBOX__"]], 1, 2),
+     [_ANTI_VM], 1, 2),
     ("EVADE.UAC_BYPASS", HIGH, "evasion", "Vượt UAC để chiếm quyền quản trị",
      [["ms-settings\\Shell\\Open\\command", "mscfile\\shell\\open\\command"]], 1, 1),
     ("RANSOM.KILL_BACKUP", HIGH, "ransomware", "Xóa shadow copy/bản sao lưu – hành vi điển hình của ransomware",
@@ -189,20 +210,18 @@ _INDICATORS = [
        "recover your files", "pay the ransom", "files have been locked"],
       ["bitcoin", "monero", ".onion", "tor browser", "decryption key", "decryptor", "btc wallet"]], 2, 2),
     ("STEAL.BROWSER", HIGH, "stealer", "Đọc mật khẩu/cookie đã lưu của trình duyệt",
-     [["\\Google\\Chrome\\User Data", "\\Microsoft\\Edge\\User Data", "\\Mozilla\\Firefox\\Profiles",
-       "Login Data", "logins.json", "key4.db", "encrypted_key", "CryptUnprotectData"]], 1, 3),
+     [_BROWSER_CREDS], 1, 3),
     ("STEAL.WALLET_APPS", HIGH, "stealer", "Nhắm tới ví tiền ảo / Telegram / Discord",
-     [["wallet.dat", "\\Electrum\\wallets", "\\Exodus\\", "\\Ethereum\\keystore",
-       "Telegram Desktop\\tdata", "\\discord\\Local Storage\\leveldb",
-       "nkbihfbeogaeaoehlefnkodbefgpgknn"]], 1, 2),
+     [_WALLETS], 1, 2),
     ("STEAL.CREDENTIAL_DUMP", HIGH, "stealer", "Trích xuất mật khẩu Windows (mimikatz / dump LSASS)",
      [["sekurlsa::", "mimikatz", "comsvcs.dll, MiniDump", "comsvcs.dll MiniDump",
        "procdump -ma lsass"]], 1, 1),
     ("EXFIL.CHANNEL", MEDIUM, "stealer", "Gửi dữ liệu ra ngoài qua Telegram bot / Discord webhook / SMTP",
-     [["api.telegram.org/bot", "discord.com/api/webhooks", "discordapp.com/api/webhooks",
-       "smtp.gmail.com", "smtp.yandex", "pastebin.com/raw"]], 1, 1),
+     [_EXFIL], 1, 1),
+    # Cần CẢ phần mở shell LẪN phần kết nối mạng: "pty.spawn(" một mình có trong ví dụ của thư viện rich (pip)
     ("BACKDOOR.REVERSE_SHELL", HIGH, "backdoor", "Reverse shell – cho kẻ tấn công điều khiển máy từ xa",
-     [["/dev/tcp/", "nc -e /bin", "Invoke-PowerShellTcp", "Net.Sockets.TCPClient", "pty.spawn("]], 1, 1),
+     [["pty.spawn(", "os.dup2(", "/bin/sh -i", "bash -i", "nc -e /bin", "Invoke-PowerShellTcp"],
+      ["/dev/tcp/", "socket.socket(", ".connect((", "Net.Sockets.TCPClient"]], 2, 2),
     ("BACKDOOR.KNOWN_RAT", HIGH, "backdoor", "Chứa tên họ RAT/stealer nổi tiếng",
      [["njRAT", "NanoCore", "DarkComet", "Remcos", "AsyncRAT", "QuasarRAT", "Quasar.Client", "DcRat",
        "XWorm", "AgentTesla"]], 1, 1),
@@ -213,11 +232,47 @@ _INDICATORS = [
     ("WORM.NETWORK", MEDIUM, "worm", "Lây lan qua mạng nội bộ (thư mục chia sẻ, ADMIN$)",
      [["\\ADMIN$", "\\C$\\", "\\IPC$", "NetShareEnum", "WNetEnumResourceA", "WNetEnumResourceW",
        "NetServerEnum", "WNetAddConnection2"]], 1, 2),
+    # --- Luật ngữ cảnh: KHẢ NĂNG + bằng chứng bổ trợ trong CÙNG một file → hành vi (chuỗi kỹ thuật ATT&CK)
+    ("KEYLOG.EXFIL", HIGH, "keylogger", "Bắt phím VÀ gửi dữ liệu ra ngoài – chuỗi hành vi của keylogger",
+     [_KEY_CAPTURE, _EXFIL], 2, 2),
+    ("STEAL.EXFIL", HIGH, "stealer", "Đọc mật khẩu/ví tiền ảo VÀ gửi dữ liệu ra ngoài – chuỗi hành vi của stealer",
+     [_BROWSER_CREDS + _WALLETS, _EXFIL], 2, 2),
+    ("INJECT.LOADER", HIGH, "trojan", "Tiêm mã vào tiến trình khác VÀ né máy ảo/tải payload – chuỗi hành vi của loader",
+     [_INJECT_API, _ANTI_VM + _DOWNLOAD_API], 2, 3),
 ]
+
+# Phân loại từng mã luật: (độ tin cậy, kỹ thuật MITRE ATT&CK – https://attack.mitre.org).
+#   "low"    = KHẢ NĂNG: API/chuỗi mà phần mềm hợp pháp cũng dùng (thư viện bàn phím, debugger, bộ cài…).
+#              Một mình không đủ để gắn cờ – xem score_and_verdict() trong scanner.py.
+#   "medium" = HÀNH VI hoặc dấu hiệu cụ thể, nhưng vẫn có thể gặp ở công cụ hợp pháp.
+#   "high"   = bằng chứng mạnh, hiếm gặp ở phần mềm hợp pháp (ngụy trang tên file, lệnh xóa bản sao lưu, mã băm…).
+RULE_META = {
+    "KEYLOG.API": ("low", "T1056.001"), "INJECT.PROCESS": ("low", "T1055"),
+    "PERSIST.AUTOSTART": ("low", "T1547.001"), "DOWNLOAD.API": ("low", "T1105"),
+    "EVADE.ANTI_VM": ("low", "T1497.001"), "EXFIL.CHANNEL": ("low", "T1567"),
+    "WORM.NETWORK": ("low", "T1021.002"), "NAME.EXECUTABLE": ("low", "T1204.002"),
+    "PACKER.NAME": ("medium", "T1027.002"),
+    "KEYLOG.MARKERS": ("medium", "T1056.001"), "DOWNLOAD.SCRIPT_DROPPER": ("medium", "T1105"),
+    "EXEC.PS_HIDDEN": ("medium", "T1059.001"), "STEAL.BROWSER": ("medium", "T1555.003"),
+    "STEAL.WALLET_APPS": ("medium", "T1005"), "BACKDOOR.REVERSE_SHELL": ("medium", "T1059"),
+    "BACKDOOR.KNOWN_RAT": ("medium", ""), "WORM.USB": ("medium", "T1091"),
+    "NAME.RISKY_TYPE": ("medium", "T1204.002"), "NAME.DISK_IMAGE": ("medium", "T1553.005"),
+    "NAME.AUTORUN_INF": ("medium", "T1091"), "NAME.PATH_TRAVERSAL": ("medium", ""),
+    "DOC.MACRO": ("medium", "T1059.005"), "PACKER.ENTROPY": ("medium", "T1027.002"),
+    "KEYLOG.EXFIL": ("high", "T1056.001"), "STEAL.EXFIL": ("high", "T1555"), "INJECT.LOADER": ("medium", "T1055"),
+    "DOWNLOAD.EXEC_PS": ("high", "T1059.001"), "EVADE.DISABLE_AV": ("high", "T1562.001"),
+    "EVADE.UAC_BYPASS": ("high", "T1548.002"), "RANSOM.KILL_BACKUP": ("high", "T1490"),
+    "RANSOM.NOTE": ("high", "T1486"), "STEAL.CREDENTIAL_DUMP": ("high", "T1003.001"),
+    "NAME.DOUBLE_EXT": ("high", "T1036.007"), "NAME.BIDI": ("high", "T1036.002"),
+    "NAME.PADDING": ("high", "T1036"), "NAME.CONTENT_MISMATCH": ("high", "T1036.008"),
+    "HASH.KNOWN_BAD": ("high", ""), "CLAMAV": ("high", ""),
+    "ARCHIVE.ENCRYPTED_EXEC": ("medium", "T1027.013"),
+}
+_META_DEFAULT = ("medium", "")  # ARCHIVE.*, YARA.* (YARA tự đặt theo meta của luật)
 # Tên họ mã độc chỉ tính khi đứng ĐẦU một từ: trình biên dịch Rust ghép chuỗi sát nhau nên
 # "Vendored" + "crates" tạo ra "…dcrat…" (báo nhầm ở ruff, uv, turbo…). Phía sau thì cho tự do (DcRatBuilder).
 _WORD_START_RULES = {"BACKDOOR.KNOWN_RAT"}
-_WORD_START = {x.lower() for r, *_, groups, _mg, _mh in _INDICATORS if r in _WORD_START_RULES
+_WORD_START = {x.lower() for r, _s, _c, _t, groups, _mg, _mh in _INDICATORS if r in _WORD_START_RULES
                for g in groups for x in g}
 _INDICATORS = [(r, s, c, t, [frozenset(x.lower() for x in g) for g in groups], mg, mh)
                for r, s, c, t, groups, mg, mh in _INDICATORS]
@@ -226,7 +281,7 @@ for *_, _groups, _mg, _mh in _INDICATORS:
     for _s in set().union(*_groups):
         _LOOKUP[_s.encode()] = _s
         _LOOKUP[_s.encode("utf-16-le")] = _s
-_BOUNDED = {}  # biến thể cần ranh giới đầu từ -> regex kiểm tra ký tự đứng trước không phải chữ/số
+_BOUNDED = {}  # biến thể cần ranh giới từ -> regex kiểm tra ký tự đứng trước không phải chữ/số
 for _s in _WORD_START:
     _BOUNDED[_s.encode()] = re.compile(rb"(?<![a-z0-9])" + re.escape(_s.encode()))
     _BOUNDED[_s.encode("utf-16-le")] = re.compile(rb"(?<![a-z0-9]\x00)" + re.escape(_s.encode("utf-16-le")))
@@ -236,13 +291,27 @@ _CHUNK = 8 << 20  # quét từng khúc 8 MB để bộ nhớ không tăng gấp 
 _OVERLAP = max(map(len, _LOOKUP)) - 1  # chuỗi nằm vắt qua ranh giới hai khúc vẫn được tìm thấy
 
 
+def _whole_token(v: bytes, low: bytes, raw: bytes) -> bool:
+    """Tên họ mã độc phải là một token: trước nó không phải chữ/số, sau nó không phải chữ THƯỜNG.
+
+    Chữ hoa phía sau vẫn được (CamelCase: "AsyncRATClient", "DcRatBuilder"), còn "dcrates" thì không.
+    """
+    utf16 = v.endswith(b"\x00")
+    for m in _BOUNDED[v].finditer(low):
+        nxt = raw[m.end(): m.end() + 2]
+        if not (nxt[:1].islower() and (not utf16 or nxt[1:2] == b"\x00")):
+            return True
+    return False
+
+
 def _find_strings(data: bytes) -> set[str]:
     """Tìm mọi chỉ dấu trong TOÀN BỘ dữ liệu (~10 giây cho 100 MB)."""
     pending, found = dict(_LOOKUP), set()
     for start in range(0, len(data), _CHUNK):
         # lùi thêm 2 byte để kiểm tra được ký tự đứng trước chuỗi (UTF-16 dùng 2 byte/ký tự)
-        low = data[max(0, start - _OVERLAP - 2): start + _CHUNK].lower()  # bytes.lower() chỉ đổi A-Z
-        for v in [v for v in pending if v in low and (v not in _BOUNDED or _BOUNDED[v].search(low))]:
+        raw = data[max(0, start - _OVERLAP - 2): start + _CHUNK]
+        low = raw.lower()  # bytes.lower() chỉ đổi A-Z
+        for v in [v for v in pending if v in low and (v not in _BOUNDED or _whole_token(v, low, raw))]:
             found.add(pending.pop(v))
         if not pending:
             break
@@ -329,7 +398,8 @@ def check_packer(data: bytes) -> list[Finding]:
         names = [("UPX", LOW)]
     for packer, sev in names:
         out.append(Finding("PACKER.NAME", sev, "evasion", f"File thực thi được nén/bảo vệ bằng {packer}",
-                           "packer làm ẩn chuỗi, các luật dò hành vi có thể bỏ sót"))
+                           "packer làm ẩn chuỗi, các luật dò hành vi có thể bỏ sót",
+                           confidence="low" if sev == LOW else ""))  # UPX: nhiều công cụ hợp pháp dùng
     hot = [(n or "?", entropy(raw)) for n, chars, raw in sections
            if chars & _EXECUTE and len(raw) >= 4096]
     hot = [(n, e) for n, e in hot if e > HIGH_ENTROPY]

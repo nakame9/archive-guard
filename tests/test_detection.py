@@ -92,7 +92,9 @@ def test_custom_yara_rule(tmp_path):
     (b"SystemVirtualVendoredcrates\\ruff_source_file\\src\\lib.rs", False),  # chuỗi ghép của Rust (ruff)
     ("overflowedcrates\\x".encode("utf-16-le"), False),
     (b"\x00DcRat.exe\x00", True),
-    (b"[DcRatBuilder] connected", True),  # phía sau tên họ được tự do
+    (b"[DcRatBuilder] connected", True),  # CamelCase: chữ hoa phía sau vẫn là token mới
+    (b"registry\\src\\dcrates.io-index", False),  # chữ thường phía sau: một từ khác (ruff)
+    (b"\x00remcos_mutex\x00", True),
     (b"\x00AsyncRAT\x00", True),
     ("Quasar.Client.Config".encode("utf-16-le"), True),
 ])

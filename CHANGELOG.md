@@ -7,6 +7,24 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.12.0] – 2026-10-31
+
+### Đổi
+- **Tách severity và confidence.** Mỗi phát hiện có thêm `confidence` (`low` = khả năng, `medium`, `high`) và
+  `attack` (mã MITRE ATT&CK). 9 luật là *khả năng* (vd. `KEYLOG.API`, `INJECT.PROCESS`, `DOWNLOAD.API`): một mình
+  chúng không còn gắn cờ, trừ khi một file có khả năng ở ≥ 3 nhóm hành vi.
+- **NGUY HIỂM cần ≥ 2 chỉ dấu độc lập** (trừ mã băm, ClamAV, YARA critical); một luật HIGH đơn lẻ là ĐÁNG NGỜ.
+- `BACKDOOR.REVERSE_SHELL` cần cả phần mở shell lẫn kết nối mạng.
+- `BACKDOOR.KNOWN_RAT` so khớp theo token: tên họ không được nối tiếp bằng chữ thường (`dcrates` ≠ `DcRat`).
+- Báo nhầm trên bộ kiểm tra chưa dùng để chỉnh luật: phần mềm thông dụng 5,9% → 2,0%; 22/22 mẫu tổng hợp vẫn bị bắt.
+  Chi tiết và đánh đổi: docs/BENCHMARK.md, vòng 3.
+
+### Thêm
+- Luật ngữ cảnh `KEYLOG.EXFIL`, `STEAL.EXFIL`, `INJECT.LOADER` (khả năng + bằng chứng bổ trợ trong cùng file).
+- YARA: `meta` nhận thêm `confidence` và `attack`.
+- Văn bản báo cáo hiện mã ATT&CK và nhãn `khả năng`; JSON thêm hai trường (vẫn `schema_version` 1).
+- `tests/positives.py`: 22 mẫu dương tính tổng hợp dùng làm test hồi quy.
+
 ## [0.11.0] – 2026-10-31
 
 ### Đổi

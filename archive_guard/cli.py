@@ -54,7 +54,8 @@ def _print_report(report, show_all, paint):
               + (f"  ({_safe(f.note)})" if f.note else ""))
         for x in sorted(f.findings, key=lambda x: -x.severity):
             cat = CATEGORIES.get(x.category, x.category)
-            print(f"      {SEVERITY_NAME[x.severity]:<8} {cat}: {_safe(x.title)}")
+            tags = "".join([f" [{x.attack}]" if x.attack else "", " · khả năng" if x.confidence == "low" else ""])
+            print(f"      {SEVERITY_NAME[x.severity]:<8} {cat}: {_safe(x.title)}{_safe(tags)}")
             if x.detail:
                 print(f"               {_safe(x.detail)}")
     counts = {v: sum(1 for f in report.files if f.verdict == v) for v in LABEL}
