@@ -504,8 +504,11 @@ def _alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    with open(f"/proc/{pid}/stat") if os.path.exists(f"/proc/{pid}/stat") else open(os.devnull) as f:
-        return " Z " not in f.read()  # tiến trình zombie coi như đã chết
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return ") Z " not in f.read()  # tiến trình zombie coi như đã chết
+    except FileNotFoundError:  # process vừa bị dọn xong (Linux), hoặc hệ điều hành không có /proc (macOS)
+        return not os.path.isdir("/proc")
 
 
 def _isolated_json(tmp_path, *argv):
