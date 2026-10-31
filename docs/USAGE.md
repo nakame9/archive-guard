@@ -108,8 +108,9 @@ thực sự đã bật** trên máy bạn. Kiểm tra nhanh: `python -m archive_
 Ghi chú:
 - Chi phí của worker khoảng **0,1 giây mỗi file nén**.
 - `--worker-memory` thấp hơn ~1,5 GB thì ClamAV không chạy được và kết quả là `CHƯA QUÉT ĐỦ`.
-- Network namespace cần user namespace không đặc quyền; nhiều bản phân phối (vd. Ubuntu 24.04) hay container chặn
-  điều này. Khi đó mạng vẫn bị chặn bằng seccomp (mọi socket không phải AF_UNIX) và Landlock (TCP).
+- Network namespace cần user namespace không đặc quyền; container (vd. Docker) và hệ thống có chính sách hạn chế
+  user namespace sẽ không cho phép. Khi đó mạng vẫn bị chặn bằng seccomp (mọi socket không phải AF_UNIX) và Landlock
+  (TCP). Đã kiểm chứng trên CI: máy Linux bật đủ 4 lớp; trong Docker bật tất cả trừ network namespace.
 - Landlock cần kernel ≥ 5.13 có bật Landlock. seccomp hiện chỉ cho x86_64.
 - `python -m archive_guard.benchmark` vẫn chạy parser trong process của nó: chỉ dùng trong máy ảo (xem BENCHMARK.md).
 

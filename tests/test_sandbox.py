@@ -23,15 +23,14 @@ def test_sandbox_status_never_overstates_protection(probe):
     if status["filesystem_restricted"] and sys.platform.startswith("linux"):
         assert not probe["doc_file_ca_nhan"], "Landlock bật nhưng vẫn đọc được file ngoài danh sách cho phép"
     if status["network_blocked"]:
-        assert not probe["mo_socket_mang"] or "bật" in status.get("network_namespace", ""), \
-            "báo đã chặn mạng nhưng vẫn mở được socket mạng"
+        assert not probe["ket_noi_mang"], "báo đã chặn mạng nhưng vẫn kết nối được TCP"
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="seccomp chỉ có trên Linux")
 def test_seccomp_blocks_ptrace_when_enabled(probe):
     if not probe["status"]["seccomp"].startswith("bật"):
         pytest.skip(probe["status"]["seccomp"])
-    assert not probe["ptrace"] and not probe["mo_socket_mang"]
+    assert not probe["ptrace"] and not probe["ket_noi_mang"]
 
 
 def test_seccomp_program_jumps_stay_in_range():

@@ -215,7 +215,7 @@ _PROBE = r"""
 import json, os, socket, sys, ctypes
 sys.path.insert(0, sys.argv[4])
 from archive_guard import sandbox
-tmp, outside, secret = sys.argv[1], sys.argv[2], sys.argv[3]
+tmp, outside, secret, port = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[5])
 status = sandbox.apply([], tmp, outer=os.environ.get("AG_OUTER"))
 def ok(fn):
     try:
@@ -226,7 +226,8 @@ res = {"status": status,
        "ghi_thu_muc_tam": ok(lambda: open(os.path.join(tmp, "a"), "w").write("x")),
        "ghi_ngoai_sandbox": ok(lambda: open(os.path.join(outside, "b"), "w").write("x")),
        "doc_file_ca_nhan": ok(lambda: open(secret).read()),
-       "mo_socket_mang": ok(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM).close())}
+       # kết nối THẬT tới cổng do process cha mở: tạo socket thôi thì vô hại (macOS cho phép tạo, chặn kết nối)
+       "ket_noi_mang": ok(lambda: socket.create_connection(("127.0.0.1", port), timeout=3).close())}
 if sys.platform.startswith("linux"):
     libc = ctypes.CDLL(None, use_errno=True)
     res["ptrace"] = libc.ptrace(0, 0, None, None) == 0  # PTRACE_TRACEME
@@ -236,11 +237,15 @@ print(json.dumps(res))
 
 def self_test() -> dict:
     """Chạy một process con, áp sandbox rồi thử các thao tác bị cấm. True = thao tác vẫn làm được."""
+    import socket
+
     with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside, \
-            tempfile.TemporaryDirectory() as home:
+            tempfile.TemporaryDirectory() as home, socket.socket() as server:
         secret = os.path.join(home, "secret.txt")
-        Path(secret).write_text("bí mật")
-        cmd = [sys.executable, "-c", _PROBE, tmp, outside, secret, str(PACKAGE_PARENT)]
+        Path(secret).write_text("secret", encoding="ascii")
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        cmd = [sys.executable, "-c", _PROBE, tmp, outside, secret, str(PACKAGE_PARENT), str(server.getsockname()[1])]
         cmd, wrapped = macos_wrap(cmd, tmp)
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", **({"AG_OUTER": "sandbox-exec"} if wrapped else {})}
         out = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp, timeout=60)
@@ -250,6 +255,8 @@ def self_test() -> dict:
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # console Windows mặc định không phải UTF-8
     result = self_test()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if os.environ.get("GITHUB_ACTIONS"):  # hiện thành annotation trên GitHub: xem được mà không cần đăng nhập
