@@ -1,6 +1,7 @@
 """Mọi mẫu thử đều được tạo trong bộ nhớ lúc chạy test, không có mã độc thật nào trong repo."""
 import gzip
 import io
+import itertools
 import os
 import json
 import tarfile
@@ -316,20 +317,82 @@ def test_file_budget_is_shared_across_nested_levels():
     assert len(report.files) <= 102
 
 
-def test_budget_counts_actual_bytes_not_declared(monkeypatch):
-    from archive_guard import scanner as sc
-    from archive_guard.extract import Member
-    read = []
+# --- Streaming: ngân sách được tính và kiểm tra NGAY trong lúc giải nén -------------------------------
 
-    def lying_reader(*a, **kw):  # header khai 1 byte cho mỗi file, nhưng mỗi file thực tế 400 KB
-        for i in range(20):
-            read.append(i)
-            yield Member(f"{i}.bin", data=os.urandom(400_000), size=1)
+def _tar_gz(files):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        for name, data in files.items():
+            info = tarfile.TarInfo(name)
+            if data is None:
+                info.type = tarfile.DIRTYPE
+            else:
+                info.size = len(data)
+            t.addfile(info, io.BytesIO(data or b""))
+    return buf.getvalue()
 
-    monkeypatch.setattr(sc, "iter_members", lying_reader)
-    report = scan(make_zip({"x": b"x"}), max_total_mb=1)
-    assert "ARCHIVE.BOMB_TOTAL" in rules_of(report)
-    assert len(read) == 3  # dừng ngay ở file thứ 3 (> 1 MB), bộ giải nén không được đọc tiếp
+
+@pytest.mark.parametrize("kind, make", [
+    ("zip", lambda d: make_zip({"a.bin": d})),
+    ("tar", lambda d: _tar_gz({"a.bin": d})),
+    ("gzip", lambda d: gzip.compress(d)),
+    ("7z", lambda d: make_7z({"a.bin": d})),
+])
+def test_budget_stops_in_the_middle_of_a_member(kind, make):
+    from archive_guard.extract import CHUNK, Budget, BudgetExceeded, iter_members
+    budget = Budget(max_bytes=1 << 20)
+    with pytest.raises(BudgetExceeded) as e:
+        list(iter_members(kind, make(os.urandom(6 << 20)), "a", limit=64 << 20, budget=budget))
+    assert e.value.kind == "bytes"
+    # dừng ngay sau khúc vượt ngưỡng, không đọc hết 6 MB của file con
+    assert budget.bytes <= (1 << 20) + CHUNK, budget.bytes
+
+
+def test_read_is_bounded_by_limit_not_by_declared_size():
+    from archive_guard.extract import Budget, _read
+    budget = Budget()
+    data, note = _read(io.BytesIO(os.urandom(3 << 20)), 1 << 20, budget)  # "header khai" gì cũng mặc
+    assert data is None and note and budget.bytes == (1 << 20) + 1
+
+
+@pytest.mark.parametrize("make", [
+    lambda: make_zip({**{f"d{i}/": b"" for i in range(100)}, "a.txt": b"hi"}),
+    lambda: _tar_gz({**{f"d{i}": None for i in range(100)}, "a.txt": b"hi"}),
+])
+def test_directories_count_as_entries(make):
+    report = scan(make(), max_files=10)
+    assert "ARCHIVE.TOO_MANY_FILES" in rules_of(report) and report.verdict != "clean"
+
+
+def test_zip_entry_limit_applies_before_metadata_is_loaded(monkeypatch):
+    import zipfile as zf_module
+    data = make_zip({f"{i}.txt": b"x" for i in range(5000)})
+    opened = []
+    real = zf_module.ZipFile
+    monkeypatch.setattr(zf_module, "ZipFile", lambda *a, **kw: opened.append(1) or real(*a, **kw))
+    report = scan(data, max_files=10)
+    assert "ARCHIVE.TOO_MANY_FILES" in rules_of(report)
+    assert opened == [], "zipfile không được phép nạp danh mục 5000 entry"
+
+
+def test_zip_oversized_directory_is_refused_before_loading():
+    long_names = make_zip({("x" * 8000) + str(i): b"" for i in range(15)})  # danh mục ~120 KB cho 15 entry
+    report = scan(long_names, max_files=20)
+    assert "ARCHIVE.TOO_MANY_FILES" in rules_of(report)
+    assert any("danh mục file" in x.detail for f in report.files for x in f.findings)
+
+
+def test_zip64_directory_count_is_read():
+    from archive_guard.extract import _zip_directory
+    data = make_zip({f"{i}": b"" for i in range(70000)})  # > 65535 entry → bắt buộc dùng bản ghi ZIP64
+    assert _zip_directory(io.BytesIO(data))[0] == 70000
+
+
+def test_root_archive_size_limit(tmp_path):
+    path = tmp_path / "a.zip"
+    path.write_bytes(make_zip({"a.txt": b"hi"}))
+    report = Scanner(use_clamav=False, max_archive_mb=0).scan_path(path)
+    assert report.verdict == "incomplete" and "max-archive-size" in report.incomplete[0]
 
 
 def test_7z_extracts_in_batches_within_budget(monkeypatch):
@@ -432,7 +495,7 @@ def test_engines_never_exceed_scan_timeout(monkeypatch, tmp_path):
     Scanner(timeout=5).scan_path(p)
     assert 0 < seen["clamav"] <= 5 and 1 <= seen["yara"] <= 5
     scanner = Scanner(timeout=5)
-    clock = iter([0.0] + [1e9] * 100)  # lần đầu: đặt mốc; các lần sau: đã hết giờ khi tới lượt ClamAV
+    clock = itertools.chain([0.0], itertools.repeat(1e9))  # lần đầu đặt mốc; sau đó: đã hết giờ
     monkeypatch.setattr(sc.time, "monotonic", lambda: next(clock))
     seen.clear()
     report = scanner.scan_path(p)

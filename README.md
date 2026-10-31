@@ -18,16 +18,26 @@ hay mở bất cứ thứ gì bên trong.
 
   | Giới hạn | Mặc định | Tùy chọn |
   |---|---|---|
+  | Kích thước file nén đầu vào | 4096 MB | `--max-archive-size` |
   | Dung lượng mỗi file con được đọc | 256 MB | `--max-size` |
   | Tổng byte giải nén (đếm byte **thực tế** đọc ra, không tin kích thước ghi trong header) | 4096 MB | `--max-total` |
-  | Tổng số file | 20.000 | – |
+  | Tổng số entry, **kể cả thư mục** | 20.000 | – |
   | Số tầng lồng nhau | 5 | `--max-depth` |
   | Thời gian quét | 300 giây | `--timeout` |
   | Tỷ lệ nén của file con từ 50 MB | 100:1 | – |
 
-  Chạm ngưỡng nào thì **dừng toàn bộ** lần quét (không đọc thêm byte nào), ghi phát hiện một lần và đánh dấu
-  kết quả là chưa quét đầy đủ. File 7z được giải nén theo từng lô ≤ `--max-size` và chỉ khi còn ngân sách, nên không
-  bao giờ nạp cả file 7z vào RAM.
+  Giải nén theo kiểu **streaming**: dữ liệu được đọc từng khúc 1 MB, ngân sách byte và thời gian được cập nhật
+  **sau mỗi khúc**, vượt ngưỡng là dừng **ngay giữa chừng** một file con (không đợi đọc xong). Mỗi entry được đếm
+  ngay khi duyệt danh mục. Với ZIP, số entry và kích thước danh mục được đọc từ bản ghi cuối file để chặn **trước
+  khi** nạp danh mục vào RAM. Chạm ngưỡng nào thì dừng toàn bộ lần quét, ghi phát hiện một lần và đánh dấu kết quả
+  là chưa quét đầy đủ. File 7z được giải nén theo từng lô ≤ `--max-size`, chỉ khi còn ngân sách.
+
+  | Định dạng | Đếm entry trước khi nạp danh mục | Dừng giữa chừng một file con |
+  |---|---|---|
+  | ZIP | ✅ (đọc bản ghi cuối file, cả ZIP64) | ✅ |
+  | TAR, TAR.GZ/BZ2/XZ | ✅ (đọc lần lượt từng header) | ✅ |
+  | GZ/BZ2/XZ đơn | – (một file) | ✅ |
+  | 7z, RAR | ❌ thư viện đọc cả danh mục khi mở; được chặn gián tiếp bởi `--max-archive-size`, chặt hơn thì dùng `--isolate --worker-memory` | ✅ |
 - **Hỗ trợ file có mật khẩu** (`--password`), và cảnh báo khi file thực thi bị khóa mật khẩu –
   thủ thuật phổ biến để né antivirus.
 - **Nhiều lớp phát hiện:**
@@ -175,7 +185,7 @@ JSON luôn có `"complete"` và danh sách `incomplete` ghi rõ từng phần ch
   nên `rules_version` cũng đổi hằng tuần, đó là điều đúng vì khả năng phát hiện đã đổi.
 
 ```json
-{"schema_version": 1, "version": "0.9.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.10.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
 ```

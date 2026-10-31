@@ -87,6 +87,8 @@ def main(argv=None) -> int:
                     help="dung lượng tối đa của mỗi file được đọc (mặc định 256 MB)")
     ap.add_argument("--max-total", type=int, default=4096, metavar="MB",
                     help="tổng dung lượng giải nén tối đa cho mỗi file nén, tính cả các tầng lồng nhau (mặc định 4096 MB)")
+    ap.add_argument("--max-archive-size", type=int, default=4096, metavar="MB",
+                    help="kích thước tối đa của file nén đầu vào (mặc định 4096 MB); lớn hơn là CHƯA QUÉT ĐỦ")
     ap.add_argument("--timeout", type=int, default=300, metavar="GIÂY",
                     help="thời gian quét tối đa cho mỗi file nén (mặc định 300 giây)")
     ap.add_argument("--isolate", action="store_true",
@@ -132,7 +134,7 @@ def main(argv=None) -> int:
         if not args.paths:
             return 0
     scanner = Scanner(passwords=args.password, max_depth=args.max_depth, max_file_mb=args.max_size,
-                      max_total_mb=args.max_total, timeout=args.timeout,
+                      max_total_mb=args.max_total, timeout=args.timeout, max_archive_mb=args.max_archive_size,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)
     if not args._worker:
@@ -141,7 +143,8 @@ def main(argv=None) -> int:
               + (f" | cô lập: bật (timeout cứng {hard_timeout:g}s"
                  + (f", RAM {args.worker_memory} MB" if args.worker_memory else "") + ")" if args.isolate else ""))
     worker_args = ["--max-depth", str(args.max_depth), "--max-size", str(args.max_size),
-                   "--max-total", str(args.max_total), "--timeout", str(args.timeout)]
+                   "--max-total", str(args.max_total), "--timeout", str(args.timeout),
+                   "--max-archive-size", str(args.max_archive_size)]
     worker_args += [x for y in args.yara for x in ("--yara", str(y.resolve()))]
     worker_args += [x for h in args.hashes for x in ("--hashes", str(h.resolve()))]
     worker_args += [f for f, on in (("--all", args.all), ("--no-yara", args.no_yara),

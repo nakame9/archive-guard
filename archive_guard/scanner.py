@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import engines, malwarebazaar, rules
-from .extract import (ARCHIVE_KINDS, ArchiveError, EncryptedArchive, archive_kind, iter_members,
-                      unsupported_container)
+from .extract import (ARCHIVE_KINDS, ArchiveError, Budget, BudgetExceeded, EncryptedArchive, archive_kind,
+                      iter_members, unsupported_container)
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -116,7 +116,7 @@ def rules_fingerprint(hashes: dict, yara_files) -> dict:
 
 class Scanner:
     def __init__(self, *, passwords=(), max_depth=5, max_file_mb=256, max_total_mb=4096,
-                 max_files=20000, max_ratio=100, timeout=300, hash_files=(), yara_paths=(),
+                 max_files=20000, max_ratio=100, timeout=300, max_archive_mb=4096, hash_files=(), yara_paths=(),
                  use_yara=True, use_clamav=True):
         self.passwords = list(passwords)
         self.max_depth = max_depth
@@ -125,6 +125,7 @@ class Scanner:
         self.max_files = max_files
         self.max_ratio = max_ratio
         self.timeout = timeout
+        self.max_archive = max_archive_mb * MB
         cache = malwarebazaar.cache_path()
         hash_status = (f"cache MalwareBazaar {time.strftime('%Y-%m-%d', time.localtime(cache.stat().st_mtime))}"
                        if cache.exists() else "chạy --update-hashes để tải thêm từ MalwareBazaar")
@@ -149,7 +150,11 @@ class Scanner:
         with open(path, "rb") as f:
             head = f.read(512)
         budget = self._budget()
-        if archive_kind(head) or path.stat().st_size <= self.max_file:
+        size = path.stat().st_size
+        if archive_kind(head) and size > self.max_archive:
+            report.files.append(FileResult(path.name, archive_kind(head), size, note="file nén quá lớn, không quét"))
+            report.incomplete.append(f"{path.name}: file nén lớn hơn {self.max_archive // MB} MB (--max-archive-size)")
+        elif archive_kind(head) or size <= self.max_file:
             # file nén gốc được đọc thẳng từ đĩa, không nạp cả file vào RAM
             src = path if archive_kind(head) else path.read_bytes()
             self._scan(src, path.name, path.name, 0, report, budget)
@@ -157,7 +162,7 @@ class Scanner:
             report.files.append(FileResult(path.name, "?", path.stat().st_size, note="quá lớn, không quét"))
             report.incomplete.append(f"{path.name}: lớn hơn {self.max_file // MB} MB")
         if self.use_clamav:
-            left = budget["deadline"] - time.monotonic()  # ClamAV dùng phần thời gian còn lại, không hơn
+            left = budget.deadline - time.monotonic()  # ClamAV dùng phần thời gian còn lại, không hơn
             found = engines.clamav_scan(path, timeout=left) if left >= 1 else None
             if found is None:
                 report.incomplete.append(
@@ -192,7 +197,7 @@ class Scanner:
         if data is not None:
             for engine, run in (("heuristic", lambda: rules.check_content(data, kind, name)),
                                 ("YARA", lambda: engines.yara_scan(self.yara, data, timeout=max(
-                                    1, min(60, int(budget["deadline"] - time.monotonic())))))):
+                                    1, min(60, int(budget.deadline - time.monotonic())))))):
                 try:
                     res.findings += run()
                 except Exception as e:  # engine lỗi/timeout KHÔNG được coi là sạch
@@ -215,40 +220,30 @@ class Scanner:
 
     def _budget(self):
         """Ngân sách dùng chung cho MỌI tầng lồng nhau của một lần quét."""
-        return {"files": 0, "bytes": 0, "deadline": time.monotonic() + self.timeout, "stopped": False}
+        return Budget(self.max_files, self.max_total, self.timeout)
 
-    def _over_budget(self, budget, res, report, display):
-        """True nếu đã vượt ngân sách; phát hiện chỉ được ghi một lần, ở tầng chạm ngưỡng đầu tiên."""
-        if budget["stopped"]:
-            return True
-        if budget["files"] > self.max_files:
-            f = Finding("ARCHIVE.TOO_MANY_FILES", MEDIUM, "archive_abuse",
-                        f"Hơn {self.max_files} file bên trong – dừng quét")
-        elif budget["bytes"] > self.max_total:
-            f = Finding("ARCHIVE.BOMB_TOTAL", HIGH, "archive_abuse",
-                        f"Tổng dung lượng giải nén vượt {self.max_total // MB} MB – nghi zip bomb")
-        elif time.monotonic() >= budget["deadline"]:  # >=: đồng hồ Windows/Python 3.10 nhích theo nấc ~16 ms
-            f = Finding("ARCHIVE.TIMEOUT", MEDIUM, "archive_abuse",
-                        f"Quét quá {self.timeout} giây – dừng (file nén có thể được thiết kế để làm treo trình quét)")
-        else:
-            return False
-        budget["stopped"] = True
+    def _stop(self, budget, e, res, report, display):
+        """Ghi phát hiện vượt ngân sách đúng MỘT lần, ở tầng chạm ngưỡng đầu tiên."""
+        if budget.stopped:
+            return
+        budget.stopped = True
+        f = {"files": Finding("ARCHIVE.TOO_MANY_FILES", MEDIUM, "archive_abuse",
+                              f"Hơn {self.max_files} entry bên trong – dừng quét", e.detail),
+             "bytes": Finding("ARCHIVE.BOMB_TOTAL", HIGH, "archive_abuse",
+                              f"Tổng dung lượng giải nén vượt {self.max_total // MB} MB – nghi zip bomb", e.detail),
+             "time": Finding("ARCHIVE.TIMEOUT", MEDIUM, "archive_abuse",
+                             f"Quét quá {self.timeout} giây – dừng (file nén có thể được thiết kế để làm treo trình quét)",
+                             e.detail)}[e.kind]
         res.findings.append(f)
         report.incomplete.append(f"{display}: dừng – {f.title}")
-        return True
 
     def _walk(self, kind, src, name, display, depth, res, report, budget):
-        if self._over_budget(budget, res, report, display):
+        if budget.stopped:
             return
-        members = iter_members(kind, src, name, self.max_file, self.passwords,
-                               remaining=lambda: self.max_total - budget["bytes"])
+        members = iter_members(kind, src, name, self.max_file, self.passwords, budget)
         try:
             for m in members:
-                budget["files"] += 1
-                # đếm byte THỰC TẾ đã đọc ra (header có thể khai man), hoặc kích thước khai báo nếu bỏ qua nội dung
-                budget["bytes"] += max(m.size, len(m.data or b""))
-                if self._over_budget(budget, res, report, display):
-                    members.close()  # dừng hẳn bộ giải nén, không đọc thêm byte nào
+                if budget.stopped:  # một tầng con đã hết ngân sách → dừng cả cây
                     return
                 child = f"{display} > {m.name}"
                 if m.packed and m.size >= BOMB_MIN_SIZE and m.size / m.packed > self.max_ratio:
@@ -270,6 +265,8 @@ class Scanner:
                 if m.note:
                     report.incomplete.append(f"{child}: {m.note}")
                 report.files.append(r)
+        except BudgetExceeded as e:  # ném ra NGAY trong lúc giải nén, giữa chừng một file con
+            self._stop(budget, e, res, report, display)
         except EncryptedArchive as e:
             res.findings.append(Finding("ARCHIVE.ENCRYPTED", MEDIUM, "evasion",
                                         "Mã hóa cả danh sách file – không xem được bên trong", str(e)))
@@ -278,3 +275,5 @@ class Scanner:
             res.findings.append(Finding("ARCHIVE.CORRUPT", LOW, "archive_abuse",
                                         "File nén hỏng hoặc không đọc được", str(e)))
             self._not_checked(res, report, display, f"không đọc được: {e}")
+        finally:
+            members.close()  # dừng hẳn bộ giải nén ở mọi lối thoát, không đọc thêm byte nào
