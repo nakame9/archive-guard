@@ -108,7 +108,27 @@ archiveguard file.7z --all                  # liệt kê cả file sạch
 archiveguard file.zip --json baocao.json    # xuất báo cáo JSON
 archiveguard file.zip --yara my_rules/ --hashes malware_sha256.txt
 python -m archive_guard file.zip            # chạy không cần cài
+archiveguard Downloads/ --isolate           # mỗi file nén quét trong một process con riêng
+archiveguard x.zip --isolate --worker-memory 1024 --worker-timeout 120
 ```
+
+### Chế độ cô lập `--isolate`
+
+Mỗi file nén được quét trong một **process con (worker)** riêng. Process chính chỉ canh giờ, đọc kết quả và dọn dẹp,
+nên một file làm parser treo, crash hay ăn hết RAM **không làm hỏng cả lần quét**: file đó nhận kết luận
+`CHƯA QUÉT ĐỦ` (hết giờ, mã thoát 4) hoặc lỗi (mã thoát 3), **không bao giờ là SẠCH**. Báo cáo JSON ghi rõ
+`worker_error`.
+
+| Tính năng | Linux | Windows | macOS |
+|---|---|---|---|
+| Hard timeout `--worker-timeout` (mặc định `--timeout` + 30 giây), kill **cả cây** process (kể cả clamscan, unrar) | ✅ | ✅ (Job Object) | ✅ |
+| Giới hạn RAM `--worker-memory` cho worker **và** process con | ✅ (RLIMIT_AS) | ✅ (Job Object) | ❌ báo lỗi |
+| Mật khẩu `-p` truyền qua stdin, không lộ trên dòng lệnh | ✅ | ✅ | ✅ |
+
+- Chi phí phụ khoảng **0,08 giây mỗi file nén** (khởi động Python, nạp bộ luật). Với file lớn thì không đáng kể.
+- ClamAV cần khoảng 1–1,5 GB RAM để nạp cơ sở dữ liệu chữ ký. Nếu `--worker-memory` thấp hơn, ClamAV sẽ không chạy
+  được và kết quả là `CHƯA QUÉT ĐỦ`.
+- Đây là cô lập để **ổn định**, không phải sandbox bảo mật: worker vẫn chạy với quyền của người dùng hiện tại.
 
 Ví dụ kết quả (file mẫu vô hại tạo trong lúc thử nghiệm):
 
@@ -155,7 +175,7 @@ JSON luôn có `"complete"` và danh sách `incomplete` ghi rõ từng phần ch
   nên `rules_version` cũng đổi hằng tuần, đó là điều đúng vì khả năng phát hiện đã đổi.
 
 ```json
-{"schema_version": 1, "version": "0.8.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.9.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
 ```
@@ -209,6 +229,7 @@ archive_guard/
 ├── engines.py      # YARA và ClamAV (tùy chọn)
 ├── malwarebazaar.py  # tải mã băm theo họ mã độc từ MalwareBazaar vào cache
 ├── benchmark.py    # đo precision/recall/tỷ lệ báo nhầm trên bộ dữ liệu có nhãn
+├── isolate.py      # --isolate: chạy worker, hard timeout, giới hạn RAM, dọn cây process
 └── data/
     ├── known_bad.txt       # mã băm mặc định (EICAR)
     ├── malwarebazaar.txt   # mã băm theo họ, GitHub Actions cập nhật hằng tuần
@@ -250,8 +271,8 @@ tất cả tạo trong bộ nhớ – repo không chứa mã độc thật.
   cha trong lúc quét tầng con), tức khoảng 1,3 GB với mặc định. Máy yếu nên hạ `--max-size`.
 - YARA và ClamAV chỉ được dùng phần thời gian còn lại của `--timeout`; hết giờ thì ClamAV bị dừng và kết quả là
   chưa quét đủ.
-- Hạn thời gian được kiểm tra giữa các file con; riêng việc quét nội dung một file (tối đa `--max-size`) không bị
-  ngắt giữa chừng.
+- Không có `--isolate`, hạn thời gian được kiểm tra giữa các file con; riêng việc quét nội dung một file (tối đa `--max-size`) không bị
+  ngắt giữa chừng; dùng `--isolate` để có hard timeout dừng được cả thao tác đang treo.
 - Mọi lớp kiểm tra đọc **trọn nội dung** mỗi file (file 256 MB mất khoảng 25 giây). File con lớn hơn `--max-size`
   (mặc định 256 MB), file bị khóa mật khẩu hay lồng quá sâu thì **không quét được** và được đánh dấu rõ:
   kết luận là `CHƯA QUÉT ĐỦ` (mã thoát `4`), không bao giờ là SẠCH.

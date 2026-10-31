@@ -7,10 +7,10 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, malwarebazaar
+from . import __version__, isolate, malwarebazaar
 from .extract import archive_kind
 from .rules import CATEGORIES, SEVERITY_NAME
-from .scanner import VERDICTS, Scanner
+from .scanner import VERDICTS, Report, Scanner
 
 LABEL = {"clean": "SẠCH", "incomplete": "CHƯA QUÉT ĐỦ", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
 COLOR = {"clean": "32", "incomplete": "35", "suspicious": "33", "malicious": "31"}
@@ -89,6 +89,13 @@ def main(argv=None) -> int:
                     help="tổng dung lượng giải nén tối đa cho mỗi file nén, tính cả các tầng lồng nhau (mặc định 4096 MB)")
     ap.add_argument("--timeout", type=int, default=300, metavar="GIÂY",
                     help="thời gian quét tối đa cho mỗi file nén (mặc định 300 giây)")
+    ap.add_argument("--isolate", action="store_true",
+                    help="quét mỗi file nén trong một process con riêng: treo/crash/hết RAM không ảnh hưởng phần còn lại")
+    ap.add_argument("--worker-timeout", type=float, metavar="GIÂY",
+                    help="hard timeout của mỗi worker, quá hạn là kill cả cây process (mặc định --timeout + 30)")
+    ap.add_argument("--worker-memory", type=int, metavar="MB",
+                    help="giới hạn RAM cho worker và process con của nó (Linux, Windows; cần --isolate)")
+    ap.add_argument("--_worker", action="store_true", help=argparse.SUPPRESS)  # process con của --isolate
     ap.add_argument("--no-yara", action="store_true", help="không dùng YARA")
     ap.add_argument("--no-clamav", action="store_true", help="không dùng ClamAV")
     ap.add_argument("--no-color", action="store_true", help="tắt màu")
@@ -104,6 +111,13 @@ def main(argv=None) -> int:
 
     if not args.paths and not args.update_hashes:
         ap.error("cần ít nhất một file/thư mục để quét, hoặc --update-hashes")
+    if (args.worker_timeout or args.worker_memory) and not args.isolate:
+        ap.error("--worker-timeout và --worker-memory cần đi kèm --isolate")
+    if args.worker_memory and not isolate.MEMORY_SUPPORTED:
+        ap.error("--worker-memory chỉ hỗ trợ Linux và Windows")
+    if args._worker:  # mật khẩu được truyền qua stdin để không lộ trên dòng lệnh
+        args.password += json.load(sys.stdin).get("passwords", [])
+    hard_timeout = args.worker_timeout or args.timeout + 30
     for extra in args.yara + args.hashes:
         if not extra.exists():
             ap.error(f"không tìm thấy {extra}")
@@ -121,11 +135,31 @@ def main(argv=None) -> int:
                       max_total_mb=args.max_total, timeout=args.timeout,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)
-    print(f"ArchiveGuard {__version__} | luật {scanner.rules_version} | "
-          + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items()))
+    if not args._worker:
+        print(f"ArchiveGuard {__version__} | luật {scanner.rules_version} | "
+              + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items())
+              + (f" | cô lập: bật (timeout cứng {hard_timeout:g}s"
+                 + (f", RAM {args.worker_memory} MB" if args.worker_memory else "") + ")" if args.isolate else ""))
+    worker_args = ["--max-depth", str(args.max_depth), "--max-size", str(args.max_size),
+                   "--max-total", str(args.max_total), "--timeout", str(args.timeout)]
+    worker_args += [x for y in args.yara for x in ("--yara", str(y.resolve()))]
+    worker_args += [x for h in args.hashes for x in ("--hashes", str(h.resolve()))]
+    worker_args += [f for f, on in (("--all", args.all), ("--no-yara", args.no_yara),
+                                    ("--no-clamav", args.no_clamav)) if on]
 
     reports, failed = [], False
     for path in _targets(args.paths):
+        if args.isolate:
+            report, output, error, timed_out = isolate.scan(path, worker_args, args.password,
+                                                             hard_timeout, args.worker_memory)
+            print(output, end="")
+            if report is None:  # worker treo/crash/hết RAM: CHƯA QUÉT ĐỦ, không bao giờ là SẠCH
+                failed_report = Report(str(path), incomplete=[error])
+                _print_report(failed_report, args.all, paint)
+                report = failed_report.to_dict() | {"worker_error": error}
+                failed = failed or not timed_out  # crash/lỗi → mã 3; hết giờ → CHƯA QUÉT ĐỦ (mã 4)
+            reports.append(report)
+            continue
         try:
             report = scanner.scan_path(path)
         except OSError as e:
@@ -136,20 +170,23 @@ def main(argv=None) -> int:
             print(f"\nLỗi khi quét {path}: {type(e).__name__}: {e}", file=sys.stderr)
             failed = True
             continue
-        reports.append(report)
+        reports.append(report.to_dict())
         _print_report(report, args.all, paint)
 
-    if not reports and not failed:
+    if not reports and not failed and not args._worker:
         print("Không tìm thấy file nén nào để quét.")
     if args.json:
         args.json.write_text(json.dumps({"schema_version": SCHEMA_VERSION, "version": __version__,
                                          "rules_version": scanner.rules_version,
                                          "rules_components": scanner.rules_components,
                                          "engines": scanner.engines,
-                                         "reports": [r.to_dict() for r in reports]},
+                                         "isolation": {"hard_timeout": hard_timeout,
+                                                       "memory_mb": args.worker_memory} if args.isolate else None,
+                                         "reports": reports},
                                         ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"\nĐã ghi báo cáo JSON: {args.json}")
-    worst = max((r.verdict for r in reports), key=VERDICTS.index, default="clean")
+        if not args._worker:
+            print(f"\nĐã ghi báo cáo JSON: {args.json}")
+    worst = max((r["verdict"] for r in reports), key=VERDICTS.index, default="clean")
     if failed and worst in ("clean", "incomplete"):
         return 3
     return EXIT_CODE[worst]

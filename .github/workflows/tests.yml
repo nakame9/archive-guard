@@ -16,6 +16,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
+      # test thất bại hiện thành annotation công khai: xem được lỗi mà không cần tải log
+      - run: pip install pytest-github-actions-annotate-failures
       - name: Cài YARA (bỏ qua nếu nền tảng chưa có bản dựng sẵn)
         run: pip install yara-python
         continue-on-error: true
