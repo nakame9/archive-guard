@@ -109,7 +109,9 @@ def test_rar_contents_are_read(unrar):
     report = _rar("rar5-solid.rar")
     inner = [f for f in report.files if " > " in f.path]
     assert [f.path.split(" > ")[1] for f in inner] == ["stest1.txt", "stest2.txt"]
-    assert all(f.kind == "text" and f.size == 2048 and not f.note for f in inner)
+    import rarfile
+    assert all(f.kind == "text" and f.size == 2048 and not f.note for f in inner), (
+        [(f.path, f.note) for f in inner], rarfile.tool_setup().__dict__)
     assert report.verdict == "clean" and not report.incomplete
 
 
