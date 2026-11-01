@@ -7,6 +7,13 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Test và CI
+- Test RAR với file thật (`tests/data/`: RAR5 thường và RAR5 có mật khẩu, từ bộ test của rarfile): đọc nội dung,
+  thiếu/sai mật khẩu → CHƯA QUÉT ĐỦ, và unrar chạy được bên trong worker có sandbox. CI Ubuntu cài unrar; trên
+  CI Linux test này thất bại thay vì bị bỏ qua nếu thiếu unrar.
+- CI chạy thêm trên `ubuntu-24.04-arm` (bộ test + sandbox-report): ghi lại trạng thái sandbox trên arm64, nơi
+  seccomp chưa hỗ trợ, và giữ cho trạng thái không bị báo quá mức thực tế.
+
 ## [0.14.0] – 2026-11-01
 
 ### Tăng tốc

@@ -76,3 +76,55 @@ def test_root_archive_size_limit(tmp_path):
     path.write_bytes(make_zip({"a.txt": b"hi"}))
     report = Scanner(use_clamav=False, max_archive_mb=0).scan_path(path)
     assert report.verdict == "incomplete" and "max-archive-size" in report.incomplete[0]
+
+
+# --- RAR: file mẫu thật trong tests/data (tạo RAR cần chương trình `rar` có bản quyền) ---
+DATA = __import__("pathlib").Path(__file__).parent / "data"
+
+
+@pytest.fixture
+def unrar():
+    """Cần unrar/7-Zip/unar. CI Ubuntu cài unrar nên ở đó test KHÔNG được phép bị bỏ qua."""
+    import os
+    import sys
+
+    rarfile = pytest.importorskip("rarfile")
+    try:
+        rarfile.tool_setup()
+    except rarfile.RarCannotExec:
+        if os.environ.get("GITHUB_ACTIONS") and sys.platform.startswith("linux"):
+            pytest.fail("CI Ubuntu phải có unrar để test RAR chạy thật")
+        pytest.skip("không có unrar/7-Zip/unar")
+
+
+def _rar(name, *passwords):
+    from archive_guard.scanner import Scanner
+    return Scanner(use_clamav=False, passwords=passwords).scan_path(DATA / name)
+
+
+def test_rar_contents_are_read(unrar):
+    report = _rar("rar5-solid.rar")
+    inner = [f for f in report.files if " > " in f.path]
+    assert [f.path.split(" > ")[1] for f in inner] == ["stest1.txt", "stest2.txt"]
+    assert all(f.kind == "text" and f.size == 2048 and not f.note for f in inner)
+    assert report.verdict == "clean" and not report.incomplete
+
+
+@pytest.mark.parametrize("passwords, verdict", [((), "incomplete"), (("sai",), "incomplete"),
+                                                (("sai", "password"), "clean")])
+def test_rar_with_password(unrar, passwords, verdict):
+    report = _rar("rar5-psw.rar", *passwords)
+    assert report.verdict == verdict
+    assert bool(report.incomplete) == (verdict == "incomplete")  # có mật khẩu mà không mở được → không bao giờ SẠCH
+
+
+def test_rar_in_sandboxed_worker(unrar, tmp_path):
+    """unrar chạy BÊN TRONG worker đã áp sandbox (Landlock/seccomp): vẫn phải đọc được nội dung."""
+    import json
+
+    from archive_guard.cli import main
+    out = tmp_path / "r.json"
+    code = main([str(DATA / "rar5-psw.rar"), "-p", "password", "--no-clamav", "--json", str(out)])
+    report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
+    assert code == 0 and report["verdict"] == "clean" and report["complete"]
+    assert len(report["files"]) == 3

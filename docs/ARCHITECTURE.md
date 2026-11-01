@@ -140,6 +140,7 @@ Thêm định dạng mới = thêm một hàm như vậy, đăng ký trong `iter
 | File | Kiểm tra |
 |---|---|
 | `tests/helpers.py` | Tạo mẫu thử trong bộ nhớ (`make_zip`, `make_7z`, `make_pe`, `tar_gz`, EICAR…); repo không chứa mã độc thật |
+| `tests/data/` | File nén thật không tạo được bằng Python (RAR thường + RAR có mật khẩu, lấy từ bộ test của rarfile); nguồn và giấy phép trong `tests/data/README.md` |
 | `tests/test_detection.py` | Luật phát hiện, packer, YARA, hồi quy cho các lỗi luật đã sửa |
 | `tests/test_confidence.py` | Khả năng đơn lẻ không gắn cờ, luật ngữ cảnh, NGUY HIỂM cần 2 chỉ dấu độc lập, bộ mẫu tổng hợp không tụt kết luận |
 | `tests/positives.py` | 22 mẫu dương tính **tổng hợp** (chuỗi vô hại theo kiểu mã độc phổ biến); dùng cho test và benchmark hồi quy |

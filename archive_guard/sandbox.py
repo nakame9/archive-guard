@@ -274,5 +274,5 @@ if __name__ == "__main__":
     result = self_test()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if os.environ.get("GITHUB_ACTIONS"):  # hiện thành annotation trên GitHub: xem được mà không cần đăng nhập
-        where = os.environ.get("AG_CONTEXT") or sys.platform
+        where = os.environ.get("AG_CONTEXT") or f"{sys.platform}-{platform.machine()}"  # phân biệt x86_64 và arm64
         print(f"::notice title=sandbox {where}::" + json.dumps(result, ensure_ascii=False))
