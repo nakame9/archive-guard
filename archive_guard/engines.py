@@ -51,19 +51,21 @@ def find_clamav() -> str | None:
     return shutil.which("clamdscan") or shutil.which("clamscan")
 
 
-def clamav_scan(path, timeout: float = 900) -> list[Finding] | None:
+def clamav_scan(path, timeout: float = 900, commands=("clamdscan", "clamscan")) -> list[Finding] | None:
     """Quét bằng ClamAV (ClamAV tự mở ZIP/RAR/7z… lồng nhau). None = không chạy được hoặc quá thời gian.
 
     timeout là thời gian tối đa cho CẢ lần gọi; khi hết giờ subprocess.run tự kill ClamAV.
+    Chế độ cô lập: process cha chỉ gọi clamdscan, worker chỉ gọi clamscan (worker không được mở socket).
     """
     deadline = time.monotonic() + timeout
-    for cmd in ("clamdscan", "clamscan"):  # clamdscan nhanh nhưng cần daemon; lỗi thì dùng clamscan
+    for cmd in commands:  # clamdscan nhanh nhưng cần daemon; lỗi thì dùng clamscan
         exe = shutil.which(cmd)
         if not exe:
             continue
         # clamscan mặc định bỏ qua file > 100 MB mà vẫn trả "sạch" → nâng lên mức tối đa ClamAV hỗ trợ (2 GB).
         # clamdscan lấy giới hạn từ clamd.conf (MaxFileSize, MaxScanSize), không đổi được từ đây.
-        limits = ["--max-filesize=2047M", "--max-scansize=2047M"] if cmd == "clamscan" else []
+        # --fdpass: clamd nhận file descriptor, không cần quyền đọc file của người dùng
+        limits = ["--max-filesize=2047M", "--max-scansize=2047M"] if cmd == "clamscan" else ["--fdpass"]
         left = deadline - time.monotonic()  # clamdscan lỗi rồi chuyển sang clamscan vẫn dùng chung một mốc
         if left <= 0:
             return None

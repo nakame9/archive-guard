@@ -109,3 +109,45 @@ def test_isolate_memory_limit(tmp_path):
     report = d["reports"][0]
     assert code == 3 and report["verdict"] == "incomplete"
     assert "MemoryError" in report["worker_error"]
+
+
+def test_worker_does_not_see_secrets_from_parent_environment(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    from archive_guard import isolate
+    monkeypatch.setenv("AG_TEST_SECRET", "bi-mat")
+    monkeypatch.setenv("ABUSECH_AUTH_KEY", "khoa-api")
+    real_run, seen = isolate.run, {}
+
+    def run_probe(cmd, stdin, timeout, memory_mb=None, cwd=None, env=None):
+        # chạy một process thật với ĐÚNG môi trường worker nhận được, hỏi nó thấy biến nào
+        probe = [sys.executable, "-c", "import os, sys; sys.stdout.write(repr(sorted(os.environ)))"]
+        seen["env"] = subprocess.run(probe, env=env, capture_output=True, text=True).stdout
+        return real_run(cmd, stdin, timeout, memory_mb, cwd=cwd, env=env)
+
+    monkeypatch.setattr(isolate, "run", run_probe)
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    code, d = _isolated_json(tmp_path, tmp_path / "a.zip")
+    assert code == 0 and d["reports"][0]["verdict"] == "clean"  # worker vẫn chạy được với môi trường tối thiểu
+    assert "AG_TEST_SECRET" not in seen["env"] and "ABUSECH_AUTH_KEY" not in seen["env"]
+    assert "PATH" in seen["env"]
+
+
+def test_clamdscan_runs_in_parent_and_result_reaches_worker(tmp_path, monkeypatch):
+    from archive_guard import engines
+    from archive_guard.rules import CRITICAL, Finding
+    calls = []
+
+    def fake_clamav(path, timeout=900, commands=("clamdscan", "clamscan")):
+        calls.append(tuple(commands))
+        return [Finding("CLAMAV", CRITICAL, "known_malware", "ClamAV: Test.Sig", str(path), "clamav")]
+
+    monkeypatch.setattr(engines, "clamav_scan", fake_clamav)
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    out = tmp_path / "r.json"
+    code = main([str(tmp_path / "a.zip"), "--json", str(out)])
+    report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
+    assert calls == [("clamdscan",)]  # process cha chỉ gọi clamdscan; worker (process khác) không gọi bản giả này
+    assert code == 2 and report["verdict"] == "malicious"
+    assert any(x["rule"] == "CLAMAV" for f in report["files"] for x in f["findings"])

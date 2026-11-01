@@ -8,9 +8,9 @@ import re
 import sys
 from pathlib import Path
 
-from . import __version__, isolate, malwarebazaar, sandbox
+from . import __version__, engines, isolate, malwarebazaar, sandbox
 from .extract import archive_kind
-from .rules import CATEGORIES, SEVERITY_NAME
+from .rules import CATEGORIES, SEVERITY_NAME, Finding
 from .scanner import VERDICTS, Report, Scanner
 
 LABEL = {"clean": "SẠCH", "incomplete": "CHƯA QUÉT ĐỦ", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
@@ -160,6 +160,13 @@ def main(argv=None) -> int:
                       max_total_mb=args.max_total, timeout=args.timeout, max_archive_mb=args.max_archive_size,
                       hash_files=args.hashes, yara_paths=args.yara,
                       use_yara=not args.no_yara, use_clamav=not args.no_clamav)
+    if args._worker and not args.no_clamav:  # worker không mở được socket tới clamd
+        clamd = request.get("clamd")
+        if clamd is not None:  # process cha đã quét bằng clamdscan
+            scanner.use_clamav = True
+            scanner.clamav = lambda path, timeout: [Finding(**d) for d in clamd]
+        else:
+            scanner.clamav = lambda path, timeout: engines.clamav_scan(path, timeout, commands=("clamscan",))
     sandbox_status = None
     if request.get("sandbox"):  # áp SAU khi nạp bộ luật (tin cậy), TRƯỚC khi đọc byte nào của file cần quét
         sandbox_status = sandbox.apply([p.resolve() for p in args.paths], os.environ.get("TMPDIR") or os.getcwd(),
@@ -187,9 +194,11 @@ def main(argv=None) -> int:
     reports, failed, worker_sandbox = [], False, None
     for path in _targets(args.paths):
         if use_worker:
+            # clamdscan --fdpass chạy ở đây: process cha chỉ chuyển file descriptor cho clamd, không phân tích file
+            clamd = None if args.no_clamav else engines.clamav_scan(path, args.timeout, commands=("clamdscan",))
             report, output, error, timed_out = isolate.scan(path, worker_args, args.password, hard_timeout,
                                                              args.worker_memory, use_sandbox=not args.no_sandbox,
-                                                             require_sandbox=args.require_sandbox)
+                                                             require_sandbox=args.require_sandbox, clamd=clamd)
             # worker có thể đã bị khai thác: không cho in ký tự điều khiển terminal (\r\n của Windows là bình thường)
             print(_safe(output.replace("\r\n", "\n")), end="")
             if report is not None and (not isinstance(report, dict) or report.get("verdict") not in VERDICTS):

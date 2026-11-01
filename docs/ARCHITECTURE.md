@@ -99,7 +99,8 @@ Thêm định dạng mới = thêm một hàm như vậy, đăng ký trong `iter
 ## Worker và sandbox
 
 - `isolate.scan()` chạy `python -m archive_guard <file> --_worker --json <tạm>` với thư mục tạm rỗng làm `cwd`;
-  mật khẩu và yêu cầu sandbox đi qua stdin. `isolate.run()` đặt giới hạn CPU/RAM, canh hard timeout và luôn dọn
+  mật khẩu, yêu cầu sandbox và kết quả `clamdscan --fdpass` (do process chính chạy) đi qua stdin; biến môi trường
+  được rút gọn trong `isolate.worker_env()`. `isolate.run()` đặt giới hạn CPU/RAM, canh hard timeout và luôn dọn
   **cả cây** process (Linux/macOS: process group; Windows: Job Object).
 - Worker gọi `sandbox.apply()` **sau** khi nạp bộ luật (dữ liệu tin cậy) và **trước** khi đọc file cần quét.
   Linux: RLIMIT_CORE → no_new_privs → network namespace → Landlock → seccomp (thứ tự này bắt buộc: seccomp chặn

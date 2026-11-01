@@ -7,6 +7,19 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.13.0] – 2026-11-01
+
+### Bảo mật
+- **seccomp chặn mọi `socket()`, kể cả Unix socket.** Trước đây worker bị khai thác vẫn kết nối được tới Unix socket
+  dạng đường dẫn ngoài sandbox (clamd, D-Bus…) dù đã có network namespace và Landlock.
+- `clamdscan` chuyển sang process chính và dùng `--fdpass`; worker chỉ còn gọi `clamscan`.
+- Worker chỉ nhận biến môi trường tối thiểu (`PATH`, `LANG`/`LC_*`, `SYSTEMROOT`, `TMP*`, `PYTHON*`): khóa
+  `ABUSECH_AUTH_KEY`, token… không còn lọt vào process xử lý dữ liệu không tin cậy.
+- Trên Linux không có seccomp (máy không phải x86_64), trạng thái ghi `network_blocked: false`; `--require-sandbox`
+  từ chối quét thay vì báo đã chặn mạng.
+- SECURITY.md: cô lập bảo vệ máy, không bảo đảm kết luận đúng nếu worker đã bị khai thác.
+- `python -m archive_guard.sandbox` thử thêm `ket_noi_unix`.
+
 ## [0.12.0] – 2026-10-31
 
 ### Đổi

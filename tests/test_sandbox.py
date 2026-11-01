@@ -24,13 +24,25 @@ def test_sandbox_status_never_overstates_protection(probe):
         assert not probe["doc_file_ca_nhan"], "Landlock bật nhưng vẫn đọc được file ngoài danh sách cho phép"
     if status["network_blocked"]:
         assert not probe["ket_noi_mang"], "báo đã chặn mạng nhưng vẫn kết nối được TCP"
+        assert not probe["ket_noi_unix"], "báo đã chặn mạng nhưng vẫn kết nối được Unix socket (vd. clamd)"
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="seccomp chỉ có trên Linux")
 def test_seccomp_blocks_ptrace_when_enabled(probe):
     if not probe["status"]["seccomp"].startswith("bật"):
         pytest.skip(probe["status"]["seccomp"])
-    assert not probe["ptrace"] and not probe["ket_noi_mang"]
+    assert not probe["ptrace"] and not probe["ket_noi_mang"] and probe["ket_noi_unix"] is False
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="chỉ Linux")
+def test_without_seccomp_network_is_not_reported_blocked(monkeypatch):
+    # máy không phải x86_64: netns + Landlock vẫn để lọt Unix socket dạng đường dẫn
+    monkeypatch.setattr(sandbox, "_seccomp", lambda libc: (False, "bỏ qua"))
+    monkeypatch.setattr(sandbox, "_landlock", lambda *a, **kw: (True, "bật"))
+    monkeypatch.setattr(sandbox, "_libc", lambda: type("L", (), {"prctl": lambda *a: 0, "unshare": lambda *a: 0})())
+    monkeypatch.setattr("resource.setrlimit", lambda *a: None)
+    status = sandbox._linux([], [])
+    assert status["network_blocked"] is False and "chặn mạng" in sandbox.missing(status)
 
 
 def test_seccomp_program_jumps_stay_in_range():
@@ -39,6 +51,8 @@ def test_seccomp_program_jumps_stay_in_range():
         if code in (0x15, 0x35):  # lệnh nhảy: đích phải nằm trong chương trình
             assert i + 1 + jt < len(prog) and i + 1 + jf < len(prog)
     assert prog[-1] == (0x06, 0, 0, 0x00050000 | 1)  # lệnh cuối: trả EPERM
+    i = next(i for i, ins in enumerate(prog) if ins[0] == 0x15 and ins[3] == 41)  # so sánh nr với socket
+    assert i + 1 + prog[i][1] == len(prog) - 1  # socket() (mọi loại, kể cả AF_UNIX) → EPERM
 
 
 def test_require_sandbox_matches_what_the_os_provides(tmp_path, probe):

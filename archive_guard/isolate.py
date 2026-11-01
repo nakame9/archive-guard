@@ -21,9 +21,10 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
-from . import sandbox
+from . import malwarebazaar, sandbox
 
 MEMORY_SUPPORTED = sys.platform.startswith("linux") or os.name == "nt"
 PACKAGE_PARENT = Path(__file__).resolve().parent.parent
@@ -135,17 +136,34 @@ def _windows_job(p, memory_mb, cpu_seconds):
     return job
 
 
+def worker_env(tmp) -> dict:
+    """Biến môi trường tối thiểu cho worker: không lộ khóa API, token, HOME… cho code xử lý dữ liệu không tin cậy."""
+    env = {k: v for k, v in os.environ.items()
+           if k in ("PATH", "LANG", "SYSTEMROOT") or k.startswith(("LC_", "TMP", "PYTHON"))}
+    cwd = os.getcwd()
+    env.update({
+        "TMP": tmp, "TEMP": tmp, "TMPDIR": tmp, "PYTHONIOENCODING": "utf-8",
+        "PYTHONDONTWRITEBYTECODE": "1",  # worker không ghi .pyc (sandbox cũng không cho ghi ngoài tmp)
+        # đường dẫn import của process cha (gồm cả site-packages của user, vốn cần HOME/APPDATA để tìm),
+        # trừ thư mục hiện tại: file .py lạ ở đó (vd. Downloads) không được che thư viện
+        "PYTHONPATH": os.pathsep.join(dict.fromkeys(
+            [str(PACKAGE_PARENT), *(p for p in sys.path if p and os.path.abspath(p) != cwd)])),
+        # cache mã băm cùng chỗ với process cha mà không cần HOME (cache_path() đọc LOCALAPPDATA trước)
+        "LOCALAPPDATA": str(malwarebazaar.cache_path().parents[1]),
+    })
+    return env
+
+
 def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | None = None,
-         use_sandbox: bool = True, require_sandbox: bool = False):
+         use_sandbox: bool = True, require_sandbox: bool = False, clamd=None):
     """Quét một file trong worker. Trả (report dict hoặc None, stdout của worker, lỗi hoặc None, hết_giờ).
 
+    clamd: kết quả clamdscan do process cha chạy (list Finding) hoặc None (worker tự chạy clamscan nếu có).
     report có thêm trường "sandbox": trạng thái các lớp sandbox mà worker đã áp (sandbox.py).
     """
     with tempfile.TemporaryDirectory(prefix="archiveguard-", ignore_cleanup_errors=True) as tmp:
         out = Path(tmp) / "report.json"
-        env = {**os.environ, "TMP": tmp, "TEMP": tmp, "TMPDIR": tmp, "PYTHONIOENCODING": "utf-8",
-               "PYTHONDONTWRITEBYTECODE": "1",  # worker không ghi .pyc (sandbox cũng không cho ghi ngoài tmp)
-               "PYTHONPATH": os.pathsep.join(filter(None, [str(PACKAGE_PARENT), os.environ.get("PYTHONPATH")]))}
+        env = worker_env(tmp)
         # cwd = thư mục tạm rỗng: `python -m` thêm cwd vào sys.path, không để file .py lạ ở thư mục người dùng
         # (vd. Downloads) che mất thư viện chuẩn
         cmd = [sys.executable, "-m", "archive_guard", str(Path(path).resolve()), "--_worker",
@@ -154,7 +172,8 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
         if use_sandbox:
             cmd, wrapped = sandbox.macos_wrap(cmd, tmp)
         request = json.dumps({"passwords": list(passwords), "sandbox": use_sandbox, "require_sandbox": require_sandbox,
-                              "outer": "sandbox-exec" if wrapped else None}).encode()
+                              "outer": "sandbox-exec" if wrapped else None,
+                              "clamd": None if clamd is None else [asdict(f) for f in clamd]}).encode()
         try:
             code, stdout, stderr, timed_out = run(cmd, request, hard_timeout, memory_mb, cwd=tmp, env=env)
         except OSError as e:

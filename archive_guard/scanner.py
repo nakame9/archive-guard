@@ -164,6 +164,7 @@ class Scanner:
         self.yara, yara_status, yara_files = (engines.load_yara([DATA_DIR / "rules", *yara_paths])
                                               if use_yara else ([], "tắt", []))
         self.use_clamav = use_clamav and engines.find_clamav() is not None
+        self.clamav = engines.clamav_scan  # worker thay bằng kết quả clamdscan của process cha hoặc chỉ clamscan
         self.engines = {
             "heuristic": "bật",
             "hash": f"{len(self.hashes)} mã băm ({hash_status})",
@@ -192,7 +193,7 @@ class Scanner:
             report.incomplete.append(f"{path.name}: lớn hơn {self.max_file // MB} MB")
         if self.use_clamav:
             left = budget.deadline - time.monotonic()  # ClamAV dùng phần thời gian còn lại, không hơn
-            found = engines.clamav_scan(path, timeout=left) if left >= 1 else None
+            found = self.clamav(path, timeout=left) if left >= 1 else None
             if found is None:
                 report.incomplete.append(
                     "ClamAV không chạy được hoặc hết thời gian quét (thiếu cơ sở dữ liệu? chạy freshclam, "

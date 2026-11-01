@@ -6,7 +6,8 @@ Linux – worker tự áp lên chính nó; process con (unrar, clamscan) thừa 
   3. mạng: network namespace rỗng (cần user namespace không đặc quyền) → không có card mạng nào
   4. Landlock: chỉ ĐỌC được file đầu vào, thư viện Python, thư mục hệ thống; chỉ GHI được thư mục tạm riêng;
      từ ABI 4 chặn cả kết nối/mở cổng TCP, từ ABI 6 chặn gửi tín hiệu ra ngoài sandbox
-  5. seccomp (x86_64): chặn ptrace, mount, nạp module kernel, bpf, io_uring… và mọi socket không phải AF_UNIX
+  5. seccomp (x86_64): chặn ptrace, mount, nạp module kernel, bpf, io_uring… và socket() – kể cả Unix socket
+     (dạng đường dẫn, vd. /run/clamav/clamd.ctl, vẫn kết nối được dù có network namespace và Landlock)
 macOS – process cha bọc worker bằng sandbox-exec: chặn mạng, chặn ghi ngoài thư mục tạm (macos_wrap()).
 Windows – chưa có sandbox file/mạng; chỉ có Job Object (RAM, CPU, kill cả cây) trong isolate.py.
 
@@ -29,7 +30,7 @@ from pathlib import Path
 
 PACKAGE_PARENT = Path(__file__).resolve().parent.parent
 SYSTEM_READ = ["/usr", "/lib", "/lib64", "/lib32", "/bin", "/sbin", "/etc", "/opt", "/proc", "/dev",
-               "/var/lib/clamav", "/run/clamav"]  # ClamAV cần cơ sở dữ liệu chữ ký và socket của clamd
+               "/var/lib/clamav"]  # clamscan cần cơ sở dữ liệu chữ ký; clamdscan chạy ở process cha
 
 # --- Linux: Landlock ----------------------------------------------------------------------------
 _SYS_CREATE_RULESET, _SYS_ADD_RULE, _SYS_RESTRICT_SELF = 444, 445, 446  # giống nhau trên mọi kiến trúc
@@ -100,8 +101,9 @@ _X86_64_DENY = {
     248: "add_key", 249: "request_key", 308: "setns", 272: "unshare", 323: "userfaultfd",
     304: "open_by_handle_at", 172: "iopl", 173: "ioperm", 167: "swapon", 168: "swapoff", 169: "reboot",
     163: "acct", 164: "settimeofday", 227: "clock_settime", 179: "quotactl", 425: "io_uring_setup",
+    41: "socket",  # worker chỉ cần pipe với process cha; mọi socket (mạng lẫn Unix) đều là đường thoát
 }
-_SYS_SOCKET, _AF_UNIX, _SYS_SECCOMP = 41, 1, 317
+_SYS_SECCOMP = 317
 
 
 class _SockFilter(ctypes.Structure):
@@ -113,19 +115,16 @@ class _SockFprog(ctypes.Structure):
 
 
 def seccomp_program():
-    """Chương trình BPF: kiến trúc khác x86_64 → kill; syscall trong danh sách chặn hoặc socket mạng → EPERM."""
+    """Chương trình BPF: kiến trúc khác x86_64 → kill; syscall trong danh sách chặn → EPERM."""
     ld, jeq, jge, ret = 0x20, 0x15, 0x35, 0x06
     allow, deny, kill = 0x7FFF0000, 0x00050000 | errno.EPERM, 0x80000000
     deny_nrs = sorted(_X86_64_DENY)
-    n = len(deny_nrs)
-    deny_at, sock_at = 10 + n, 7 + n  # vị trí lệnh "trả EPERM" và khối kiểm tra socket
+    deny_at = 6 + len(deny_nrs)  # vị trí lệnh "trả EPERM" (ngay sau lệnh "cho phép")
     prog = [(ld, 0, 0, 4), (jeq, 1, 0, 0xC000003E), (ret, 0, 0, kill),  # seccomp_data.arch == AUDIT_ARCH_X86_64
             (ld, 0, 0, 0), (jge, deny_at - 5, 0, 0x40000000)]           # seccomp_data.nr; chặn ABI x32
     prog += [(jeq, deny_at - (5 + i) - 1, 0, nr) for i, nr in enumerate(deny_nrs)]
-    prog += [(jeq, sock_at - (5 + n) - 1, 0, _SYS_SOCKET), (ret, 0, 0, allow),
-             (ld, 0, 0, 16), (jeq, 0, 1, _AF_UNIX), (ret, 0, 0, allow),  # args[0] = domain của socket()
-             (ret, 0, 0, deny)]
-    assert len(prog) == deny_at + 1 and prog[sock_at] == (ld, 0, 0, 16)
+    prog += [(ret, 0, 0, allow), (ret, 0, 0, deny)]
+    assert len(prog) == deny_at + 1
     return prog
 
 
@@ -137,7 +136,7 @@ def _seccomp(libc):
     fprog = _SockFprog(len(prog), arr)
     # SECCOMP_SET_MODE_FILTER + SECCOMP_FILTER_FLAG_TSYNC: áp cho mọi luồng của process
     _call(libc.syscall, ctypes.c_long(_SYS_SECCOMP), ctypes.c_uint(1), ctypes.c_uint(1), ctypes.byref(fprog))
-    return True, f"bật (chặn {len(_X86_64_DENY)} syscall + socket mạng)"
+    return True, f"bật (chặn {len(_X86_64_DENY)} syscall, kể cả socket)"
 
 
 def _linux(read, write):
@@ -150,16 +149,16 @@ def _linux(read, write):
     status["no_new_privs"] = "bật"
     try:  # CLONE_NEWUSER | CLONE_NEWNET: phải làm trước seccomp (seccomp chặn unshare)
         _call(libc.unshare, 0x10000000 | 0x40000000)
-        netns = True
     except OSError as e:
-        netns = False
         status["network_namespace"] = f"không được ({e.strerror})"
     else:
         status["network_namespace"] = "bật (không có card mạng)"
     fs_ok, status["landlock"] = _guard(lambda: _landlock(libc, read, write, block_tcp=True))
     sc_ok, status["seccomp"] = _guard(lambda: _seccomp(libc))
     status["filesystem_restricted"] = fs_ok
-    status["network_blocked"] = netns or sc_ok  # seccomp chặn tạo mọi socket không phải AF_UNIX
+    # Chỉ seccomp chặn được Unix socket dạng đường dẫn (netns/Landlock thì không). Không có seccomp – máy không
+    # phải x86_64 hoặc kernel từ chối – thì KHÔNG báo đã chặn mạng, để --require-sandbox từ chối quét.
+    status["network_blocked"] = sc_ok
     return status
 
 
@@ -215,7 +214,7 @@ _PROBE = r"""
 import json, os, socket, sys, ctypes
 sys.path.insert(0, sys.argv[4])
 from archive_guard import sandbox
-tmp, outside, secret, port = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[5])
+tmp, outside, secret, port, unix_path = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[5]), sys.argv[6]
 status = sandbox.apply([], tmp, outer=os.environ.get("AG_OUTER"))
 def ok(fn):
     try:
@@ -228,6 +227,10 @@ res = {"status": status,
        "doc_file_ca_nhan": ok(lambda: open(secret).read()),
        # kết nối THẬT tới cổng do process cha mở: tạo socket thôi thì vô hại (macOS cho phép tạo, chặn kết nối)
        "ket_noi_mang": ok(lambda: socket.create_connection(("127.0.0.1", port), timeout=3).close())}
+def unix():
+    with socket.socket(socket.AF_UNIX) as s:
+        s.settimeout(3); s.connect(unix_path)
+res["ket_noi_unix"] = ok(unix) if unix_path else None  # None: hệ điều hành không có AF_UNIX
 if sys.platform.startswith("linux"):
     libc = ctypes.CDLL(None, use_errno=True)
     res["ptrace"] = libc.ptrace(0, 0, None, None) == 0  # PTRACE_TRACEME
@@ -245,10 +248,21 @@ def self_test() -> dict:
         Path(secret).write_text("secret", encoding="ascii")
         server.bind(("127.0.0.1", 0))
         server.listen()
-        cmd = [sys.executable, "-c", _PROBE, tmp, outside, secret, str(PACKAGE_PARENT), str(server.getsockname()[1])]
+        unix_path = ""
+        if hasattr(socket, "AF_UNIX") and os.name == "posix":  # giả lập socket của clamd, nằm ngoài sandbox
+            unix_path = os.path.join(home, "s")
+            unix_server = socket.socket(socket.AF_UNIX)
+            unix_server.bind(unix_path)
+            unix_server.listen()
+        cmd = [sys.executable, "-c", _PROBE, tmp, outside, secret, str(PACKAGE_PARENT), str(server.getsockname()[1]),
+               unix_path]
         cmd, wrapped = macos_wrap(cmd, tmp)
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", **({"AG_OUTER": "sandbox-exec"} if wrapped else {})}
-        out = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp, timeout=60)
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp, timeout=60)
+        finally:
+            if unix_path:
+                unix_server.close()
         if out.returncode:
             raise RuntimeError(out.stderr.strip()[-500:])
         return json.loads(out.stdout)

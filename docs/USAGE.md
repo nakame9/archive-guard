@@ -60,7 +60,7 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.12.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.13.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
@@ -94,14 +94,15 @@ mọi hạn chế. Worker treo, crash, hết RAM hay trả kết quả hỏng �
 | Thư mục tạm riêng, xóa khi xong | ✅ | ✅ | ✅ |
 | Chỉ **ghi** được thư mục tạm riêng | ✅ Landlock | ✅ sandbox-exec | ❌ |
 | Chỉ **đọc** được file đầu vào + thư viện + thư mục hệ thống | ✅ Landlock | ❌ (đọc được mọi file) | ❌ |
-| Chặn mạng | ✅ network namespace / seccomp / Landlock TCP | ✅ sandbox-exec | ❌ |
+| Chặn mạng, kể cả Unix socket (vd. clamd, D-Bus) | ✅ seccomp (x86_64), thêm network namespace / Landlock TCP | ✅ sandbox-exec | ❌ |
 | Chặn syscall nguy hiểm (ptrace, mount, bpf, nạp module…) | ✅ seccomp (x86_64) | ❌ | ❌ |
 | no_new_privs, không ghi core dump | ✅ | – | – |
 | Mật khẩu truyền qua stdin, không lộ trên dòng lệnh | ✅ | ✅ | ✅ |
+| Biến môi trường tối thiểu (chỉ `PATH`, `LANG`/`LC_*`, `SYSTEMROOT`, `TMP*`, `PYTHON*`): khóa API, token không lọt vào worker | ✅ | ✅ | ✅ |
 
 Cuối mỗi lần quét, dòng `Sandbox của worker: …` (và trường `sandbox` của mỗi báo cáo JSON) cho biết **lớp nào
 thực sự đã bật** trên máy bạn. Kiểm tra nhanh: `python -m archive_guard.sandbox` chạy thử các thao tác bị cấm
-(ghi ra ngoài, đọc file cá nhân, mở socket, ptrace) trong sandbox và in kết quả.
+(ghi ra ngoài, đọc file cá nhân, kết nối TCP và Unix socket, ptrace) trong sandbox và in kết quả.
 
 | Tùy chọn | Khi nào dùng |
 |---|---|
@@ -113,9 +114,13 @@ Ghi chú:
 - Chi phí của worker khoảng **0,1 giây mỗi file nén**.
 - `--worker-memory` thấp hơn ~1,5 GB thì ClamAV không chạy được và kết quả là `CHƯA QUÉT ĐỦ`.
 - Network namespace cần user namespace không đặc quyền; container (vd. Docker) và hệ thống có chính sách hạn chế
-  user namespace sẽ không cho phép. Khi đó mạng vẫn bị chặn bằng seccomp (mọi socket không phải AF_UNIX) và Landlock
-  (TCP). Đã kiểm chứng trên CI: máy Linux bật đủ 4 lớp; trong Docker bật tất cả trừ network namespace.
-- Landlock cần kernel ≥ 5.13 có bật Landlock. seccomp hiện chỉ cho x86_64.
+  user namespace sẽ không cho phép. Khi đó mạng vẫn bị chặn bằng seccomp (chặn `socket()`) và Landlock (TCP).
+  Đã kiểm chứng trên CI: máy Linux bật đủ 4 lớp; trong Docker bật tất cả trừ network namespace.
+- Landlock cần kernel ≥ 5.13 có bật Landlock. **seccomp hiện chỉ cho x86_64.** Trên ARM (vd. aarch64) network
+  namespace và Landlock không chặn được Unix socket dạng đường dẫn, nên trạng thái ghi `network_blocked: false` và
+  `--require-sandbox` từ chối quét.
+- ClamAV ở chế độ cô lập: **process chính** gọi `clamdscan --fdpass` (chỉ chuyển file descriptor cho clamd, không
+  phân tích file); nếu không có clamd thì worker gọi `clamscan`. Worker không bao giờ kết nối tới clamd.
 - `python -m archive_guard.benchmark` vẫn chạy parser trong process của nó: chỉ dùng trong máy ảo (xem BENCHMARK.md).
 
 ### Docker
