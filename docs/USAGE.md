@@ -60,7 +60,7 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.14.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.15.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}

@@ -7,6 +7,20 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.15.0] – 2026-11-01
+
+### Thêm
+- 140 file luật YARA `crime_*`/`mal_*` của signature-base (Detection Rule License 1.1) trong
+  `archive_guard/data/rules/signature-base/`; 0 báo nhầm trên 260 gói phần mềm sạch. Luật kiểu THOR: mức độ suy
+  từ `score`, in tên tác giả luật khi khớp (yêu cầu của DRL), có sẵn biến ngoài `filename`… (rỗng).
+- Mọi file luật YARA được biên dịch chung để quét một lượt (lỗi thì biên dịch từng file, bỏ file lỗi).
+- `benchmark/lay_mau.py`: lấy ≈ 200 mẫu MalwareBazaar mới theo họ, chia theo thời gian thành phần chỉnh luật và
+  phần kiểm tra; từ chối chạy nếu không xác nhận đang ở máy ảo.
+
+### Đổi
+- Danh sách mã băm có thêm cột ngày `first_seen`; `update()` bỏ mã của mẫu cũ hơn 12 tháng. Dòng cũ chưa có ngày
+  mà lượt cập nhật không thấy lại thì bị bỏ (trừ khi có truy vấn lỗi).
+
 ### Test và CI
 - Test RAR với file thật (`tests/data/`: RAR5 thường và RAR5 có mật khẩu, từ bộ test của rarfile): đọc nội dung,
   thiếu/sai mật khẩu → CHƯA QUÉT ĐỦ, và unrar chạy được bên trong worker có sandbox. CI Ubuntu cài unrar; trên

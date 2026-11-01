@@ -165,6 +165,25 @@ Kết quả thô: [`results-2026-10-31-holdout2-before.md`](../benchmark/results
 | regedit (bộ kiểm tra 3), pywin32, electron-winstaller | `NAME.RISKY_TYPE` | Script `.wsf/.sct/.lnk` hợp pháp; giữ ở `medium` vì đây là kiểu phát tán mã độc rất phổ biến (T1204.002) |
 | impacket, bloodhound, pypykatz | `STEAL.CREDENTIAL_DUMP` | Công cụ tấn công thật – gắn cờ là đúng về nội dung, sai về ý định |
 
+## Vòng 4 – Luật YARA cộng đồng (2026-11-01, bản 0.15.0)
+
+**Thay đổi:** đóng gói 140 file luật `crime_*`/`mal_*` (≈ 275 luật) của
+[signature-base](https://github.com/Neo23x0/signature-base) – Detection Rule License 1.1, xem
+`archive_guard/data/rules/signature-base/README.md`. Bỏ 2 file khác giấy phép (CC BY-NC 4.0, GPL-3.0), không lấy
+luật chung `gen_*` và luật công cụ tấn công `hktl_*`. Mức độ suy từ `score` (≥ 80 → NGUY HIỂM). Yara-Rules
+(GPL-2.0) không đóng gói; vẫn dùng được qua `--yara`.
+
+**Báo nhầm** (chọn luật trên bộ 1 + bộ kiểm tra 1, đo trên bộ kiểm tra 3):
+
+| Bộ | Số gói | Luật cộng đồng khớp | Kết luận thay đổi |
+|---|---|---|---|
+| Bộ 1 + bộ kiểm tra 1 (dùng để chọn) | 190 | 0 | 0 |
+| Bộ kiểm tra 3 | 70 | 0 (KTC 95% của tỷ lệ báo nhầm: 0–5,2%) | 0 |
+
+Thời gian quét tăng khoảng 15–40% (bộ 1 + bộ kiểm tra 1: 66 → 93 giây). **Recall chưa đo:** signature-base
+tập trung vào APT và công cụ tấn công, chỉ có luật cho vài họ trong danh sách (GuLoader, Amadey, NanoCore, Quasar,
+njRAT, LockBit, Mirai…); AgentTesla, Formbook, Lumma, XWorm… không có luật. Tác động thật cần đo theo Kết quả 2.
+
 ## Kết quả 2 – Phát hiện mã độc thật (recall): **CHƯA ĐO**
 
 Đây là con số quan trọng nhất và hiện **chưa có**. Lý do: môi trường phát triển không tải được mẫu mã độc,
@@ -182,23 +201,29 @@ mã độc bị **obfuscate, pack, mã hóa hoặc chưa có chữ ký** đều 
 
 > ⚠️ Chỉ làm trong **máy ảo cách ly**: không thư mục chia sẻ, không đăng nhập tài khoản cá nhân, chụp snapshot
 > trước và khôi phục sau khi xong. ArchiveGuard không chạy file nào, nhưng bản thân các mẫu là mã độc thật.
+> Không chạy trên máy cá nhân hay GitHub Actions.
 
-1. **Lấy mẫu:** dùng API MalwareBazaar (cùng Auth-Key với `--update-hashes`), truy vấn `get_siginfo` cho mỗi họ
-   rồi `get_file` theo SHA-256. Mẫu được trả về dạng ZIP mật khẩu `infected`. Nên lấy khoảng **30–50 mẫu mỗi họ**
-   cho các họ trong `archive_guard/malwarebazaar.py`, cộng vài họ ngoài danh sách đó để thử với mã độc
-   "lạ". Ưu tiên mẫu có `first_seen` **sau** ngày của file `archive_guard/data/malwarebazaar.txt`, để cả lớp
-   mã băm cũng được thử với mẫu mới.
-2. **Sắp xếp:** `mau_doc/<Họ>/<sha256>.zip`, giữ nguyên file ZIP mật khẩu (ArchiveGuard tự mở bằng `-p infected`).
-   Đặt bộ phần mềm sạch vào `phan_mem_sach/<nhóm>/`.
-3. **Chạy:**
+1. **Lấy mẫu** (cần Auth-Key MalwareBazaar, cùng khóa với `--update-hashes`):
 
    ```bash
-   python -m archive_guard.benchmark --malicious mau_doc --benign phan_mem_sach -p infected --out ketqua
+   python benchmark/lay_mau.py --toi-dang-o-may-ao --out mau_doc --moi-ho 10
    ```
 
-4. **Đọc kết quả:** xem dòng **"Không dùng mã băm"** để biết năng lực với mã độc mới, bảng recall theo họ để
-   biết họ nào bị bỏ sót, và danh sách bỏ sót để biết cần thêm luật gì. Chỉ gửi lại file `ketqua.md`/`ketqua.json`
-   (chỉ chứa tên file và mã băm), **không** gửi mẫu.
+   Mỗi họ trong `archive_guard/malwarebazaar.py` lấy 10 mẫu mới nhất của 30 ngày gần đây (≈ 200 mẫu), giữ nguyên
+   ZIP mật khẩu `infected`, và **chia theo thời gian**: nửa cũ hơn vào `mau_doc/chinh/` (dùng để chỉnh luật), nửa
+   mới hơn vào `mau_doc/kiemtra/` (chỉ để đo). `--thu` liệt kê mà không tải.
+2. **Đo trên cả hai phần bằng luật hiện tại, trước khi sửa gì:**
+
+   ```bash
+   python -m archive_guard.benchmark --malicious mau_doc/chinh -p infected --out ketqua_chinh
+   python -m archive_guard.benchmark --malicious mau_doc/kiemtra -p infected --out ketqua_kiemtra
+   ```
+
+3. **Gửi lại** `ketqua_*.md`/`.json` và `mau_doc/danh_sach.csv` (chỉ chứa tên file, mã băm, luật đã khớp),
+   **không** gửi mẫu. Con số công bố là dòng **"Không dùng mã băm"** của `ketqua_kiemtra`: mẫu MalwareBazaar gần
+   như chắc chắn đã có trong danh sách mã băm, nên dòng "Tất cả" cao một cách tự nhiên.
+4. **Chỉnh luật** chỉ dựa trên `ketqua_chinh`; rồi đo lại `kiemtra` đúng một lần với luật mới. Lặp lại thì cần
+   một lượt mẫu mới hơn (chạy lại bước 1 vài tuần sau), vì `kiemtra` đã bị nhìn thấy.
 
 ## Tái hiện kết quả 1
 

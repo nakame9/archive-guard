@@ -88,6 +88,26 @@ def test_custom_yara_rule(tmp_path):
     assert report.verdict == "malicious"
 
 
+@pytest.mark.parametrize("score, verdict", [(85, "malicious"), (70, "suspicious")])
+def test_community_yara_rule_score_and_author(tmp_path, score, verdict):
+    """Luật kiểu signature-base: không có severity/category, có score + author (DRL: phải in tên tác giả)."""
+    pytest.importorskip("yara")
+    rule = tmp_path / "mal_demo.yar"
+    rule.write_text(f'rule MAL_Demo {{ meta: description = "demo" author = "Tác Giả" score = {score} '
+                    'strings: $a = "hello-malware" condition: $a and filename != "x" }')  # biến ngoài như THOR
+    report = scan(make_zip({"x.bin": b"..hello-malware.."}), yara_paths=[rule])
+    hit = [x for f in report.files for x in f.findings if x.rule == "YARA.MAL_Demo"][0]
+    assert hit.category == "known_malware" and "Tác Giả" in hit.detail
+    assert report.verdict == verdict
+
+
+def test_bundled_signature_base_rules_compile():
+    pytest.importorskip("yara")
+    from archive_guard.scanner import DATA_DIR, Scanner
+    expected = len(list((DATA_DIR / "rules").rglob("*.yar")))
+    assert expected > 100 and Scanner(use_clamav=False).engines["yara"] == f"{expected} file luật"
+
+
 @pytest.mark.parametrize("blob, hit", [
     (b"SystemVirtualVendoredcrates\\ruff_source_file\\src\\lib.rs", False),  # chuỗi ghép của Rust (ruff)
     ("overflowedcrates\\x".encode("utf-16-le"), False),

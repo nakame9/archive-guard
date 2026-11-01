@@ -66,7 +66,7 @@ Kết luận của cả file nén là kết luận nặng nhất trong các file
 | Packer | tên section UPX/ASPack/Themida/VMProtect/MPRESS/NsPack/Enigma/PECompact…, dấu `UPX!`, entropy > 7.2 ở vùng mã | `check_packer()` |
 | Hành vi | 24 luật chỉ dấu (khả năng + luật ngữ cảnh), chuỗi ASCII + UTF-16, quét **trọn** file (YARA nếu có, không thì vòng lặp Python theo khúc 8 MB) | `_INDICATORS`, `RULE_META` |
 | Mã băm | MalwareBazaar theo họ + danh sách riêng (`--hashes`) | `load_hashes()`, `malwarebazaar.py` |
-| YARA | `archive_guard/data/rules/*.yar` + `--yara` | `engines.py` |
+| YARA | `archive_guard/data/rules/*.yar` (gồm 140 file `crime_*`/`mal_*` của signature-base, DRL 1.1) + `--yara` | `engines.py` |
 | ClamAV | nếu máy có `clamscan`/`clamdscan` | `engines.py` |
 
 Trừ YARA/ClamAV/mã băm, mọi luật nằm trong `archive_guard/rules.py`.
@@ -113,6 +113,8 @@ rule My_Keylogger {
         all of them
 }
 ```
+
+Luật kiểu signature-base/THOR (có `score`, không có `severity`) được hiểu tự động: `score` ≥ 80 → critical, 60–79 → high, còn lại medium; `author` được in kèm khi luật khớp. Biến ngoài `filename`, `filepath`, `extension`, `filetype`, `owner` có sẵn (rỗng).
 
 Bộ luật cộng đồng nên thử: [Yara-Rules/rules](https://github.com/Yara-Rules/rules),
 [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base).

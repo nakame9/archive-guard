@@ -31,6 +31,39 @@ def test_update_hashes_by_family(tmp_path):
     assert report.verdict == "malicious"
 
 
+def test_update_keeps_dates_and_drops_hashes_older_than_12_months(tmp_path):
+    import datetime
+
+    from archive_guard import malwarebazaar
+    today = datetime.date(2026, 11, 1)
+    old, recent, undated, legacy_seen = "a" * 64, "b" * 64, "c" * 64, "d" * 64
+    cache = tmp_path / "mb.txt"
+    cache.write_text(f"# cũ\n{old} Vidar 2025-10-01\n{recent} Vidar 2026-06-01\n{undated} njrat\n"
+                     f"{legacy_seen} AsyncRAT\n", encoding="utf-8")
+    new = "e" * 64
+
+    def fake_query(key, form):
+        if form.get("signature") == "AsyncRAT":
+            return [{"sha256_hash": legacy_seen, "signature": "AsyncRAT", "first_seen": "2026-09-30 10:00:00"},
+                    {"sha256_hash": new, "signature": "AsyncRAT", "first_seen": "2026-10-31 08:00:00"}]
+        return []
+
+    assert malwarebazaar.update("k", cache, log=lambda *_: None, query=fake_query, today=today) == (1, 3)
+    lines = {line.split()[0]: line.split()[1:] for line in cache.read_text(encoding="utf-8").splitlines()
+             if not line.startswith("#")}
+    assert lines == {recent: ["Vidar", "2026-06-01"], legacy_seen: ["AsyncRAT", "2026-09-30"],
+                     new: ["AsyncRAT", "2026-10-31"]}  # quá 12 tháng và dòng cũ không thấy lại: bị bỏ
+
+    def partly_broken(key, form):
+        if form.get("signature") == "Mirai":
+            raise RuntimeError("timeout")
+        return []
+
+    cache.write_text(f"{undated} njrat\n", encoding="utf-8")
+    malwarebazaar.update("k", cache, log=lambda *_: None, query=partly_broken, today=today)
+    assert undated in cache.read_text(encoding="utf-8")  # có truy vấn lỗi: chưa biết chắc là cũ, giữ lại
+
+
 def test_update_hashes_needs_working_key(tmp_path, monkeypatch):
     from archive_guard import malwarebazaar
 

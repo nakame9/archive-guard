@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archive-guard"
-version = "0.14.0"
+version = "0.15.0"
 description = "Quét file nén (ZIP, RAR, 7z, TAR, GZ…) tìm dấu hiệu trojan, keylogger, worm, ransomware"
 readme = "README.md"
 license = "MIT"
@@ -26,7 +26,7 @@ archiveguard = "archive_guard.cli:main"
 include = ["archive_guard*"]
 
 [tool.setuptools.package-data]
-archive_guard = ["data/*.txt", "data/rules/*.yar"]
+archive_guard = ["data/*.txt", "data/rules/*.yar", "data/rules/signature-base/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

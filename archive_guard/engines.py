@@ -9,6 +9,8 @@ from pathlib import Path
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
 _SEVERITY = {"low": LOW, "medium": MEDIUM, "high": HIGH, "critical": CRITICAL}
+# Biến ngoài mà luật của signature-base/THOR dùng (tên file…); để trống: ta quét nội dung, không quét đường dẫn
+_EXTERNALS = {"filename": "", "filepath": "", "extension": "", "filetype": "", "owner": ""}
 
 
 def load_yara(paths):
@@ -21,13 +23,20 @@ def load_yara(paths):
     for p in map(Path, paths):
         files += [p] if p.is_file() else sorted([*p.rglob("*.yar"), *p.rglob("*.yara")])
     compiled, bad, loaded = [], [], []
-    for f in files:
-        try:
-            compiled.append(yara.compile(filepath=str(f)))
-            loaded.append(f)
-        except yara.Error as e:  # một file luật lỗi không làm hỏng cả bộ
-            bad.append(f"{f.name}: {e}")
-    status = f"{len(compiled)} file luật"
+    try:  # biên dịch chung: một lượt quét cho mọi luật (hàng trăm file luật cộng đồng)
+        compiled.append(yara.compile(filepaths={f"{i}:{f.stem}": str(f) for i, f in enumerate(files)},
+                                     externals=_EXTERNALS))
+        loaded = files
+    except yara.Error:
+        for f in files:  # có file lỗi: biên dịch từng file, bỏ file lỗi, không làm hỏng cả bộ
+            try:
+                compiled.append(yara.compile(filepath=str(f), externals=_EXTERNALS))
+                loaded.append(f)
+            except yara.Error as e:
+                bad.append(f"{f.name}: {e}")
+    if not files:
+        compiled = []
+    status = f"{len(loaded)} file luật"
     return compiled, status + (f" (bỏ qua file lỗi: {'; '.join(bad)})" if bad else ""), loaded
 
 
@@ -37,14 +46,26 @@ def yara_scan(compiled, data: bytes, timeout: int = 60) -> list[Finding]:
     for rules in compiled:
         for m in rules.match(data=data, timeout=timeout):
             meta = m.meta
-            sev = _SEVERITY.get(str(meta.get("severity", "")).lower(), HIGH)
+            sev = _SEVERITY.get(str(meta.get("severity", "")).lower()) or _score_severity(meta.get("score")) or HIGH
             confidence = str(meta.get("confidence", "")).lower()
             if confidence not in ("low", "medium", "high"):
                 confidence = "high" if sev == CRITICAL else "medium"
-            out.append(Finding(f"YARA.{m.rule}", sev, str(meta.get("category", "generic")),
-                               str(meta.get("description", m.rule)), engine="yara", confidence=confidence,
-                               attack=str(meta.get("attack", ""))))
+            # luật cộng đồng (signature-base: meta score, không có category) là chữ ký họ mã độc cụ thể
+            category = meta.get("category") or ("known_malware" if "score" in meta else "generic")
+            # Detection Rule License 1.1: thông báo khi luật khớp phải giữ tên tác giả luật
+            detail = f"luật {m.rule}" + (f", tác giả: {meta['author']}" if meta.get("author") else "")
+            out.append(Finding(f"YARA.{m.rule}", sev, str(category), str(meta.get("description", m.rule)), detail,
+                               engine="yara", confidence=confidence, attack=str(meta.get("attack", ""))))
     return out
+
+
+def _score_severity(score):
+    """Thang score của signature-base/THOR: >= 80 cảnh báo mạnh, 60–79 đáng ngờ, < 60 chỉ để lưu ý."""
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        return None
+    return CRITICAL if score >= 80 else HIGH if score >= 60 else MEDIUM
 
 
 def find_clamav() -> str | None:

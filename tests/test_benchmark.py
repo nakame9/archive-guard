@@ -26,3 +26,16 @@ def test_benchmark_metrics(tmp_path):
     assert lo == 0 and 0.03 < hi < 0.04  # 0/100 báo nhầm vẫn có cận trên ~3,7%
     md = benchmark.to_markdown(res)
     assert "d.zip" in md and "b.zip" in md
+
+
+def test_sample_split_tunes_on_older_and_tests_on_newer():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("lay_mau", Path(__file__).parent.parent / "benchmark" / "lay_mau.py")
+    lay_mau = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lay_mau)
+    rows = [{"first_seen": f"2026-10-{d:02d}"} for d in (5, 1, 9, 3, 7, 2)]
+    out = lay_mau.chia(rows, 4)  # 4 mẫu mới nhất: 03, 05, 07, 09
+    assert [(r["first_seen"][-2:], p) for r, p in out] == [("03", "chinh"), ("05", "chinh"),
+                                                           ("07", "kiemtra"), ("09", "kiemtra")]
+    assert lay_mau.main(["--auth-key", "x"]) == 2  # thiếu xác nhận máy ảo: từ chối, không gọi mạng
