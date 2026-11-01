@@ -5,7 +5,7 @@
 | Thành phần | Để làm gì | Cài thế nào |
 |---|---|---|
 | YARA (khuyên dùng) | Chạy luật YARA đi kèm và luật của bạn; dò chỉ dấu hành vi nhanh hơn ~25 lần (~270 MB/s thay vì ~10 MB/s) | `pip install -e ".[yara]"` |
-| `unrar` hoặc `7z` | Đọc **nội dung** file RAR (không có thì vẫn kiểm tra được tên file) | Windows: cài 7-Zip, thêm `C:\Program Files\7-Zip` vào PATH. Ubuntu: `sudo apt install unrar`. macOS: `brew install rar` hoặc `brew install sevenzip` – `bsdtar` có sẵn của macOS không đọc được RAR5 solid/có mật khẩu (kết quả: CHƯA QUÉT ĐỦ) |
+| `unrar` hoặc `7z` | Đọc **nội dung** file RAR (không có thì vẫn kiểm tra được tên file) | Windows: cài 7-Zip, thêm `C:\Program Files\7-Zip` vào PATH. Ubuntu: `sudo apt install unrar`. macOS: `brew install rar` – `bsdtar` có sẵn và `p7zip` của Homebrew (không có codec RAR) không giải nén được RAR5, kết quả là CHƯA QUÉT ĐỦ |
 | ClamAV | Thêm engine chữ ký (cần ~1–1,5 GB RAM) | Ubuntu: `sudo apt install clamav && sudo freshclam`. Windows: clamav.net |
 
 Máy cài ClamAV nhưng **thiếu cơ sở dữ liệu chữ ký** sẽ nhận `CHƯA QUÉT ĐỦ` cho mọi file: chạy `freshclam`

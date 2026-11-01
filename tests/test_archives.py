@@ -86,18 +86,20 @@ DATA = __import__("pathlib").Path(__file__).parent / "data"
 def unrar():
     """Cần unrar/7-Zip/unar. CI Ubuntu cài unrar nên ở đó test KHÔNG được phép bị bỏ qua.
 
-    bsdtar (có sẵn trên macOS) không tính: rarfile dùng được nó nhưng không đọc nổi RAR5 solid/có mật khẩu
-    (kết quả là CHƯA QUÉT ĐỦ – an toàn, nhưng không kiểm tra được việc đọc nội dung).
+    Có công cụ chưa đủ: bsdtar của macOS và p7zip của Homebrew (không có codec RAR) được rarfile chấp nhận nhưng
+    không giải nén nổi RAR5 – kết quả là CHƯA QUÉT ĐỦ (an toàn) nhưng không kiểm tra được việc đọc nội dung.
     """
     import os
-    import shutil
     import sys
 
-    pytest.importorskip("rarfile")
-    if not any(shutil.which(t) for t in ("unrar", "7z", "7zz", "unar")):
+    rarfile = pytest.importorskip("rarfile")
+    try:
+        with rarfile.RarFile(DATA / "rar5-solid.rar") as rf:
+            rf.read("stest1.txt")
+    except Exception as e:
         if os.environ.get("GITHUB_ACTIONS") and sys.platform.startswith("linux"):
-            pytest.fail("CI Ubuntu phải có unrar để test RAR chạy thật")
-        pytest.skip("không có unrar/7-Zip/unar")
+            pytest.fail(f"CI Ubuntu phải có unrar để test RAR chạy thật: {e}")
+        pytest.skip(f"máy này không có công cụ giải nén được RAR5: {e}")
 
 
 def _rar(name, *passwords):
@@ -109,9 +111,7 @@ def test_rar_contents_are_read(unrar):
     report = _rar("rar5-solid.rar")
     inner = [f for f in report.files if " > " in f.path]
     assert [f.path.split(" > ")[1] for f in inner] == ["stest1.txt", "stest2.txt"]
-    import rarfile
-    assert all(f.kind == "text" and f.size == 2048 and not f.note for f in inner), (
-        [(f.path, f.note) for f in inner], rarfile.tool_setup().__dict__)
+    assert all(f.kind == "text" and f.size == 2048 and not f.note for f in inner), [(f.path, f.note) for f in inner]
     assert report.verdict == "clean" and not report.incomplete
 
 
