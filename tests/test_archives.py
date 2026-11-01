@@ -84,14 +84,17 @@ DATA = __import__("pathlib").Path(__file__).parent / "data"
 
 @pytest.fixture
 def unrar():
-    """Cần unrar/7-Zip/unar. CI Ubuntu cài unrar nên ở đó test KHÔNG được phép bị bỏ qua."""
+    """Cần unrar/7-Zip/unar. CI Ubuntu cài unrar nên ở đó test KHÔNG được phép bị bỏ qua.
+
+    bsdtar (có sẵn trên macOS) không tính: rarfile dùng được nó nhưng không đọc nổi RAR5 solid/có mật khẩu
+    (kết quả là CHƯA QUÉT ĐỦ – an toàn, nhưng không kiểm tra được việc đọc nội dung).
+    """
     import os
+    import shutil
     import sys
 
-    rarfile = pytest.importorskip("rarfile")
-    try:
-        rarfile.tool_setup()
-    except rarfile.RarCannotExec:
+    pytest.importorskip("rarfile")
+    if not any(shutil.which(t) for t in ("unrar", "7z", "7zz", "unar")):
         if os.environ.get("GITHUB_ACTIONS") and sys.platform.startswith("linux"):
             pytest.fail("CI Ubuntu phải có unrar để test RAR chạy thật")
         pytest.skip("không có unrar/7-Zip/unar")
