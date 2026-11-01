@@ -94,7 +94,8 @@ def test_community_yara_rule_score_and_author(tmp_path, score, verdict):
     pytest.importorskip("yara")
     rule = tmp_path / "mal_demo.yar"
     rule.write_text(f'rule MAL_Demo {{ meta: description = "demo" author = "Tác Giả" score = {score} '
-                    'strings: $a = "hello-malware" condition: $a and filename != "x" }')  # biến ngoài như THOR
+                    'strings: $a = "hello-malware" condition: $a and filename != "x" }',  # biến ngoài như THOR
+                    encoding="utf-8")
     report = scan(make_zip({"x.bin": b"..hello-malware.."}), yara_paths=[rule])
     hit = [x for f in report.files for x in f.findings if x.rule == "YARA.MAL_Demo"][0]
     assert hit.category == "known_malware" and "Tác Giả" in hit.detail
