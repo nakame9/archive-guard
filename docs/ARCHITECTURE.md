@@ -85,6 +85,13 @@ Một đối tượng `Budget` cho mỗi file nén gốc, truyền thẳng xuố
   nuốt mất; `Scanner._walk()` bắt nó, ghi phát hiện đúng một lần (`_stop()`), rồi dừng cả cây.
 
 Mỗi định dạng có một hàm đọc riêng trong `extract.py` (`_zip`, `_tar`, `_7z`, `_rar`) cùng trả về các `Member`.
+7z: `_7z_stream()` gọi `extract()` của py7zr **một lần** trong luồng phụ; mỗi file giải nén xong được đẩy qua
+`queue.Queue(maxsize=1)` và luồng phụ chờ tới khi luồng chính quét xong file đó (hai luồng không chạy cùng lúc,
+`Budget` không cần khóa). Lỗi của luồng phụ, kể cả `BudgetExceeded`, được ném lại ở luồng chính.
+
+Dò chỉ dấu hành vi (`rules._find_strings()`): có yara-python thì mọi chuỗi được biên dịch thành **một** luật YARA
+(`ascii wide nocase`, ~270 MB/s); tên họ mã độc vẫn qua bước kiểm tra ranh giới token như cũ. Không có yara-python
+(hoặc YARA báo lỗi) thì dùng vòng lặp Python (~10 MB/s), cho cùng kết quả.
 Thêm định dạng mới = thêm một hàm như vậy, đăng ký trong `iter_members()` và trong `MAGIC` (chữ ký file).
 
 ## Kết luận

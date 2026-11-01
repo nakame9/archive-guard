@@ -4,7 +4,7 @@
 
 | Thành phần | Để làm gì | Cài thế nào |
 |---|---|---|
-| YARA | Chạy luật YARA đi kèm và luật của bạn | `pip install -e ".[yara]"` |
+| YARA (khuyên dùng) | Chạy luật YARA đi kèm và luật của bạn; dò chỉ dấu hành vi nhanh hơn ~25 lần (~270 MB/s thay vì ~10 MB/s) | `pip install -e ".[yara]"` |
 | `unrar` hoặc `7z` | Đọc **nội dung** file RAR (không có thì vẫn kiểm tra được tên file) | Windows: cài 7-Zip, thêm `C:\Program Files\7-Zip` vào PATH. Ubuntu: `sudo apt install unrar` |
 | ClamAV | Thêm engine chữ ký (cần ~1–1,5 GB RAM) | Ubuntu: `sudo apt install clamav && sudo freshclam`. Windows: clamav.net |
 
@@ -60,7 +60,7 @@ Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách t
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.13.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.14.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}

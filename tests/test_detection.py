@@ -124,3 +124,22 @@ def test_family_name_at_chunk_boundary_keeps_context(monkeypatch):
 def test_ransom_note_needs_demand_and_payment(text, hit):
     found = "RANSOM.NOTE" in rules_of(scan(make_zip({"readme.exe": FAKE_EXE + text})))
     assert found == hit
+
+
+def test_yara_string_search_matches_the_python_loop():
+    from archive_guard import rules
+    if not rules._YARA:
+        pytest.skip("không có yara-python: chỉ dùng vòng lặp")
+    every = sorted(set(rules._LOOKUP.values()))  # mọi chỉ dấu, ASCII lẫn UTF-16, chữ hoa lẫn thường
+    blobs = [b"\x00".join(x.upper().encode() for x in every), "|".join(every).encode("utf-16-le"),
+             b"Vendoredcrates\\dcrates\x00DcRatBuilder\x00", "overflowedcrates".encode("utf-16-le"),
+             "Quasar.Client".encode("utf-16-le") + b"\x00remcos_x", b"x" * 100 + b"GETWINDOWTEXTA"]
+    for blob in blobs:
+        assert rules._find_strings(blob) == rules._find_strings_loop(blob, rules._LOOKUP)
+
+
+def test_detection_without_yara_python(monkeypatch):
+    from archive_guard import rules
+    monkeypatch.setattr(rules, "_YARA", None)  # máy không cài được yara-python: vòng lặp Python
+    sample = FAKE_EXE + b"\0GetAsyncKeyState\0https://api.telegram.org/bot1/sendMessage\0\0AsyncRAT\0"
+    assert {"KEYLOG.EXFIL", "BACKDOOR.KNOWN_RAT"} <= rules_of(scan(make_zip({"a.exe": sample})))

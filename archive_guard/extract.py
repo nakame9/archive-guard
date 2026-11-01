@@ -11,9 +11,11 @@ import gzip
 import io
 import lzma
 import os
+import queue
 import struct
 import tarfile
 import tempfile
+import threading
 import time
 import zipfile
 from dataclasses import dataclass
@@ -280,15 +282,82 @@ def _7z_factory(limit, budget):
     return Factory(limit + 1)
 
 
+class _Stop(BaseException):
+    """Luồng chính không nhận thêm file nữa: dừng luồng giải nén."""
+
+
+def _7z_stream(src, password, targets, limit, budget):
+    """Giải nén 7z MỘT lượt (khối solid chỉ giải nén một lần) trong luồng phụ; trả lần lượt (tên, dữ liệu).
+
+    Luồng phụ dừng ở cuối mỗi file cho tới khi luồng chính xử lý xong file đó: hai luồng không bao giờ chạy cùng
+    lúc (Budget không cần khóa) và RAM chỉ giữ một file. Lỗi của luồng phụ, kể cả BudgetExceeded, được ném lại ở
+    luồng chính.
+    """
+    import py7zr
+    from py7zr.io import BytesIOFactory, Py7zBytesIO
+
+    q, stop, done = queue.Queue(maxsize=1), threading.Event(), object()
+
+    class Counted(Py7zBytesIO):
+        def write(self, s):
+            if stop.is_set():
+                raise _Stop
+            budget.take(len(s))
+            return super().write(s)
+
+        def close(self):  # py7zr >= 1.1.3 gọi khi giải nén xong (và kiểm CRC) một file
+            if not stop.is_set():
+                self.seek(0)
+                q.put((self.filename, self.read()))
+                q.join()  # chờ luồng chính quét xong file này
+
+    class Factory(BytesIOFactory):
+        def create(self, filename):
+            return Counted(filename, self.limit)
+
+    def run():
+        try:
+            with _open(src) as f, py7zr.SevenZipFile(f, password=password) as z:
+                z.extract(targets=targets, factory=Factory(limit + 1))
+            q.put(done)
+        except BaseException as e:  # noqa: BLE001 – chuyển mọi lỗi (cả BudgetExceeded) sang luồng chính
+            q.put(e)
+
+    worker = threading.Thread(target=run, name="7z", daemon=True)
+    worker.start()
+    taken = False
+    try:
+        while True:
+            item = q.get()
+            taken = True
+            if item is done:
+                return
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+            q.task_done()
+            taken = False
+    finally:
+        stop.set()
+        if taken:
+            q.task_done()
+        while worker.is_alive():  # nhả luồng phụ đang chờ; lần ghi kế tiếp của nó ném _Stop
+            try:
+                q.get(timeout=0.05)
+                q.task_done()
+            except queue.Empty:
+                pass
+
+
 def _7z(src, limit, passwords, budget):
-    """Giải nén 7z theo từng lô <= limit byte; mỗi khúc giải nén ra đều được tính vào ngân sách ngay.
+    """Giải nén 7z một lượt; mỗi khúc giải nén ra đều được tính vào ngân sách ngay.
 
     shortcut: py7zr đọc TOÀN BỘ danh mục file khi mở (không duyệt lần lượt được) nên giới hạn số entry chỉ
     áp dụng ngay sau khi mở; danh mục 7z cực lớn vẫn tốn RAM lúc mở → dùng --isolate --worker-memory.
     """
     import py7zr
 
-    # 1. Tìm mật khẩu đúng bằng cách giải nén thử file nhỏ nhất
+    # 1. Tìm mật khẩu đúng (chỉ khi file có mật khẩu) bằng cách giải nén thử file nhỏ nhất
     chosen, infos, encrypted = None, None, False
     for pwd in [None, *passwords]:
         try:
@@ -301,7 +370,7 @@ def _7z(src, limit, passwords, budget):
                     continue
                 probe = min((i for i in infos if i.uncompressed <= limit), key=lambda i: i.uncompressed,
                             default=None)
-                if probe:
+                if encrypted and probe:
                     z.extract(targets=[probe.filename], factory=_7z_factory(limit, budget))
             chosen = pwd
             break
@@ -321,37 +390,27 @@ def _7z(src, limit, passwords, budget):
             yield Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=True, note=LOCKED)
         return
 
-    def extract(batch):
-        factory = _7z_factory(limit, budget)
-        with _open(src) as f, py7zr.SevenZipFile(f, password=chosen) as z:
-            z.extract(targets=[i.filename for i in batch], factory=factory)
-        budget.check()  # phòng khi py7zr giải nén song song trong luồng phụ và không chuyển lỗi ra ngoài
-        for i in batch:
-            m = Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=encrypted)
-            if i.filename in factory.products:
-                buf = factory.get(i.filename)
-                buf.seek(0)
-                data = buf.read()  # đã tính ngân sách lúc ghi
-                m.data, m.note = (None, TOO_BIG) if len(data) > limit else (data, "")
-            else:
-                m.note = "không giải nén được"
-            yield m
-
-    # 2. Gom file thành lô; một lô chỉ được giải nén khi còn đủ ngân sách cho nó
-    batch, pending = [], 0
+    # 2. File quá lớn: không đọc, nhưng py7zr vẫn phải giải nén qua chúng trong khối solid → tính trước
+    wanted = {}
     for i in infos:
         budget.entry()
         if i.uncompressed > limit:
-            budget.take(i.uncompressed)  # không đọc nhưng py7zr vẫn phải giải nén qua nó trong khối solid
+            budget.take(i.uncompressed)
             yield Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=encrypted, note=TOO_BIG)
-            continue
-        if batch and pending + i.uncompressed > min(limit, budget.remaining()):
-            yield from extract(batch)
-            batch, pending = [], 0
-        batch.append(i)
-        pending += i.uncompressed
-    if batch:
-        yield from extract(batch)
+        else:
+            wanted[i.filename] = i
+    if not wanted:
+        return
+    # 3. Một lượt giải nén cho tất cả file còn lại
+    for name, data in _7z_stream(src, chosen, list(wanted), limit, budget):
+        i = wanted.pop(name, None)
+        m = Member(name, size=i.uncompressed if i else len(data), packed=i.compressed if i else None,
+                   encrypted=encrypted)
+        m.data, m.note = (None, TOO_BIG) if len(data) > limit else (data, "")
+        yield m
+    for i in wanted.values():  # py7zr không trả file này (vd. phiên bản không gọi close())
+        yield Member(i.filename, size=i.uncompressed, packed=i.compressed, encrypted=encrypted,
+                     note="không giải nén được")
 
 
 @contextlib.contextmanager

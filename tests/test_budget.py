@@ -103,24 +103,43 @@ def test_zip64_directory_count_is_read():
     assert _zip_directory(io.BytesIO(data))[0] == 70000
 
 
-def test_7z_extracts_in_batches_within_budget(monkeypatch):
+def test_7z_extracts_in_one_pass_within_budget(monkeypatch):
     py7zr = pytest.importorskip("py7zr")
-    calls = []
-    real = py7zr.SevenZipFile.extract
+    from py7zr.io import Py7zBytesIO
+    calls, written = [], []
+    real_extract, real_write = py7zr.SevenZipFile.extract, Py7zBytesIO.write
 
     def spy(self, *a, targets=None, **kw):
         calls.append(len(targets or []))
-        return real(self, *a, targets=targets, **kw)
+        return real_extract(self, *a, targets=targets, **kw)
 
     monkeypatch.setattr(py7zr.SevenZipFile, "extract", spy)
+    monkeypatch.setattr(Py7zBytesIO, "write", lambda self, b: written.append(len(b)) or real_write(self, b))
     data = make_7z({f"{i}.bin": os.urandom(400_000) for i in range(6)})
     full = scan(data, "a.7z", max_file_mb=1)
     assert scanned_count(full) == 7 and not full.incomplete
-    assert max(calls[1:]) <= 2  # lần đầu dò mật khẩu; sau đó mỗi lô <= 1 MB (2 file) trong RAM
-    calls.clear()
+    assert calls == [6]  # một lần gọi extract cho cả 6 file (không dò mật khẩu khi file không có mật khẩu)
+    calls.clear(), written.clear()
     limited = scan(data, "a.7z", max_file_mb=1, max_total_mb=1)
-    assert "ARCHIVE.BOMB_TOTAL" in rules_of(limited)
-    assert sum(calls[1:]) <= 3  # không giải nén các lô sau khi đã hết ngân sách
+    assert "ARCHIVE.BOMB_TOTAL" in rules_of(limited) and calls == [6]
+    assert sum(written) <= (1 << 20) + (1 << 20)  # dừng ngay khi hết ngân sách, không giải nén nốt 2,4 MB
+
+
+def test_7z_time_grows_linearly():
+    """Trước đây mỗi lô mở lại file và giải nén lại khối solid từ đầu → thời gian tăng theo bình phương."""
+    import time
+    pytest.importorskip("py7zr")
+
+    def seconds(n):
+        data = make_7z({f"{i}.bin": os.urandom(400_000) for i in range(n)})  # 2 file mỗi lô cũ (1 MB)
+        best = float("inf")
+        for _ in range(3):
+            t = time.perf_counter()
+            assert scanned_count(scan(data, "a.7z", max_file_mb=1)) == n + 1
+            best = min(best, time.perf_counter() - t)
+        return best
+
+    assert seconds(40) <= 2.5 * seconds(20)
 
 
 def test_time_budget(monkeypatch):
@@ -165,3 +184,13 @@ def test_clamav_timeout_does_not_fall_back(monkeypatch):
     monkeypatch.setattr(engines.subprocess, "run", slow)
     assert engines.clamav_scan("x.zip", timeout=3) is None
     assert len(calls) == 1 and calls[0] <= 3  # không thử tiếp clamscan sau khi clamdscan hết giờ
+
+
+def test_7z_worker_thread_stops_when_consumer_stops():
+    import threading
+
+    from archive_guard.extract import Budget, _7z
+    gen = _7z(make_7z({f"{i}.bin": os.urandom(1000) for i in range(5)}), 1 << 20, [], Budget())
+    next(gen)
+    gen.close()  # vd. luồng chính hết thời gian giữa chừng
+    assert not any(t.name == "7z" and t.is_alive() for t in threading.enumerate())

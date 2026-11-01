@@ -7,6 +7,20 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.14.0] – 2026-11-01
+
+### Tăng tốc
+- Dò chỉ dấu hành vi bằng **một luật YARA** (`ascii wide nocase`) khi có yara-python: ~270–330 MB/s thay vì ~8–12 MB/s (đo trên dữ liệu ngẫu nhiên và opengl32sw.dll 21 MB).
+  Tên họ mã độc vẫn qua bước kiểm tra ranh giới token như cũ; thiếu yara-python hoặc YARA báo lỗi thì dùng vòng
+  lặp cũ. yara-python vẫn là tùy chọn (`[yara]`) vì chưa có bản dựng sẵn cho mọi nền tảng (vd. Windows + Python 3.14).
+- 7z giải nén **một lượt** trong luồng phụ, từng file chuyển qua hàng đợi; trước đây mỗi lô mở lại file và giải nén
+  lại khối solid từ đầu. Lỗi ngân sách của luồng phụ được ném lại ở luồng chính.
+- Benchmark trên 3 bộ phần mềm sạch + 22 mẫu tổng hợp (282 mẫu): kết luận và luật **giống hệt** bản trước; tổng thời
+  gian quét giảm ~3 lần (p95 mỗi mẫu 11–14 s → 2,6–3,8 s).
+
+### Đổi
+- Cần `py7zr >= 1.1.3` (báo từng file giải nén xong qua `Py7zIO.close()`).
+
 ## [0.13.0] – 2026-11-01
 
 ### Bảo mật

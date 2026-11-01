@@ -64,7 +64,7 @@ Kết luận của cả file nén là kết luận nặng nhất trong các file
 | Tên file | đuôi kép `hoadon.pdf.exe`, ký tự đảo chiều Unicode, chèn khoảng trắng giấu đuôi, `.scr/.hta/.lnk/.iso…`, `autorun.inf`, Zip Slip, symlink nguy hiểm | `check_name()` |
 | Nội dung | `.exe` đội lốt `.pdf/.jpg`, macro VBA, định dạng chứa file chưa hỗ trợ | `check_content()`, `file_kind()` |
 | Packer | tên section UPX/ASPack/Themida/VMProtect/MPRESS/NsPack/Enigma/PECompact…, dấu `UPX!`, entropy > 7.2 ở vùng mã | `check_packer()` |
-| Hành vi | 24 luật chỉ dấu (khả năng + luật ngữ cảnh), chuỗi ASCII + UTF-16, quét **trọn** file theo khúc 8 MB | `_INDICATORS`, `RULE_META` |
+| Hành vi | 24 luật chỉ dấu (khả năng + luật ngữ cảnh), chuỗi ASCII + UTF-16, quét **trọn** file (YARA nếu có, không thì vòng lặp Python theo khúc 8 MB) | `_INDICATORS`, `RULE_META` |
 | Mã băm | MalwareBazaar theo họ + danh sách riêng (`--hashes`) | `load_hashes()`, `malwarebazaar.py` |
 | YARA | `archive_guard/data/rules/*.yar` + `--yara` | `engines.py` |
 | ClamAV | nếu máy có `clamscan`/`clamdscan` | `engines.py` |

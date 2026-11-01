@@ -304,9 +304,41 @@ def _whole_token(v: bytes, low: bytes, raw: bytes) -> bool:
     return False
 
 
+def _yara_lookup():
+    """Mọi chỉ dấu trong MỘT luật YARA (ascii wide nocase = đúng các biến thể trong _LOOKUP). None nếu thiếu yara."""
+    try:
+        import yara
+    except ImportError:
+        return None
+    strings = sorted(set(_LOOKUP.values()))
+    defs = " ".join(f'$s{i} = "{x.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}" ascii wide nocase'
+                    for i, x in enumerate(strings))
+    return yara.compile(source=f"rule indicators {{ strings: {defs} condition: any of them }}"), strings, yara.Error
+
+
+_YARA = _yara_lookup()
+
+
 def _find_strings(data: bytes) -> set[str]:
-    """Tìm mọi chỉ dấu trong TOÀN BỘ dữ liệu (~10 giây cho 100 MB)."""
-    pending, found = dict(_LOOKUP), set()
+    """Tìm mọi chỉ dấu trong TOÀN BỘ dữ liệu: YARA (Aho-Corasick, nhanh) nếu có, không thì vòng lặp Python."""
+    if _YARA:
+        compiled, strings, error = _YARA
+        try:
+            # cảnh báo "too many matches" (dữ liệu lặp lại) không ảnh hưởng: chỉ cần biết chuỗi có xuất hiện
+            matches = compiled.match(data=data, warnings_callback=lambda *_: 0)  # 0 = CALLBACK_CONTINUE
+            hits = {strings[int(sm.identifier[2:])] for m in matches for sm in m.strings}
+        except error:  # vd. quá nhiều lần khớp: dùng cách cũ, chậm nhưng không bỏ sót
+            return _find_strings_loop(data, _LOOKUP)
+        bounded = hits & _WORD_START  # tên họ mã độc: YARA chỉ là bước lọc, ranh giới token kiểm tra như cũ
+        return (hits - bounded) | _find_strings_loop(data, {v: x for v, x in _LOOKUP.items() if x in bounded})
+    return _find_strings_loop(data, _LOOKUP)
+
+
+def _find_strings_loop(data: bytes, lookup: dict) -> set[str]:
+    """Cách dò cũ (~8 MB/s): so khớp từng chuỗi trên từng khúc 8 MB đã chuyển chữ thường."""
+    pending, found = dict(lookup), set()
+    if not pending:
+        return found
     for start in range(0, len(data), _CHUNK):
         # lùi thêm 2 byte để kiểm tra được ký tự đứng trước chuỗi (UTF-16 dùng 2 byte/ký tự)
         raw = data[max(0, start - _OVERLAP - 2): start + _CHUNK]
