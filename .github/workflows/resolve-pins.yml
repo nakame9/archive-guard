@@ -7,24 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          D=$(docker buildx imagetools inspect python:3.13-slim --format '{{json .Manifest}}' | jq -r .digest)
-          echo "::notice title=digest::python:3.13-slim@$D"
-          docker run --rm -e TS=$(date -u +%Y%m%dT000000Z) python:3.13-slim@$D sh -c '
-            . /etc/os-release; python -V
-            printf "deb http://deb.debian.org/debian %s non-free\ndeb http://deb.debian.org/debian-security %s-security non-free\n" $VERSION_CODENAME $VERSION_CODENAME > /etc/apt/sources.list.d/nf.list
-            dpkg --add-architecture arm64
-            apt-get update -qq && apt-cache policy unrar unrar:arm64
-            cd /tmp && apt-get download -qq unrar unrar:arm64 && for f in *.deb; do echo "::notice title=deb::$VERSION_CODENAME $f $(sha256sum $f | cut -c1-64)"; done
-            V=$(ls unrar_*_amd64.deb | sed "s/unrar_\(.*\)_amd64.deb/\1/; s/%3a/:/")
-            echo "::notice title=snapshot::TS=$TS version=$V"
-            python - "$TS" <<PY
-          import sys, urllib.request, glob
-          ts = sys.argv[1]
-          for f in glob.glob("*.deb"):
-              url = f"https://snapshot.debian.org/archive/debian/{ts}/pool/non-free/u/unrar-nonfree/{f}"
-              try:
-                  code = urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=60).status
-              except Exception as e:
-                  code = e
-              print(f"::notice title=snapshot-check::{url} -> {code}")
-          PY'
+          for ts in 20261101T000000Z 20261102T000000Z; do for a in amd64 arm64; do
+            url=https://snapshot.debian.org/archive/debian/$ts/pool/non-free/u/unrar-nonfree/unrar_7.1.8-1_$a.deb
+            sum=$(curl -fsSL --retry 3 "$url" | sha256sum | cut -c1-64) && echo "::notice title=snapshot::$url $sum"
+          done; done
+          curl -fsSL "https://snapshot.debian.org/mr/binary/unrar/" | head -c 600; echo
