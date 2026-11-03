@@ -10,7 +10,7 @@
 FROM python:3.13-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
 
 # unrar để đọc NỘI DUNG file RAR (Debian trixie, non-free). Cập nhật: đổi 4 dòng dưới theo bản mới trên
-# https://snapshot.debian.org/package/unrar-nonfree/ và kiểm tra lại SHA-256. unrar có lịch sử CVE: xem SECURITY.md.
+# https://snapshot.debian.org/package/unrar-nonfree/ và kiểm tra lại SHA-256. unrar có lịch sử CVE: xem docs/SECURITY-MODEL.md.
 ARG UNRAR_SNAPSHOT=20261101T000000Z
 ARG UNRAR_VERSION=7.1.8-1
 ARG UNRAR_SHA256_AMD64=ad50191c24ef8334ce4f12ac8a11c30faa773651215966d868c3b7c24e1f73f6

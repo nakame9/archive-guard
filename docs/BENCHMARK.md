@@ -259,4 +259,4 @@ python -m archive_guard.benchmark --benign phan_mem_sach/ --no-clamav --out ketq
 ```
 
 Bộ mẫu dương tính tổng hợp: `python benchmark/dung_mau_tong_hop.py tonghop/` rồi `--malicious tonghop/`.
-Quy trình đo trước/sau khi sửa luật: [CONTRIBUTING.md](../CONTRIBUTING.md#đo-báo-nhầm-trước-khi-merge).
+Quy trình đo trước/sau khi sửa luật: [CONTRIBUTING.md](../CONTRIBUTING.md#đo-báo-nhầm-trước-khi-gửi-pr-đổi-luật).

@@ -103,7 +103,7 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop AL
   -v "$PWD:/scan:ro" archive-guard . --fail-on malicious,incomplete
 ```
 
-Image đã có `unrar`, mọi thành phần được pin (xem SECURITY.md). Đây là cách duy nhất có sandbox file/mạng cho runner
+Image đã có `unrar`, mọi thành phần được pin (xem [SECURITY-MODEL.md](SECURITY-MODEL.md#chuỗi-cung-ứng)). Đây là cách duy nhất có sandbox file/mạng cho runner
 Windows (Docker Desktop/WSL2).
 
 ## Kết quả cho người xem lại

@@ -1,44 +1,37 @@
 # ArchiveGuard 🛡️
 
 [![tests](https://github.com/nakame9/archive-guard/actions/workflows/tests.yml/badge.svg)](https://github.com/nakame9/archive-guard/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-Công cụ dòng lệnh quét **file nén (ZIP, RAR, 7z, TAR, GZ, BZ2, XZ)** để tìm dấu hiệu mã độc như
-**trojan, keylogger, worm, ransomware, stealer, backdoor/RAT, downloader** – trước khi bạn giải nén
-hay mở bất cứ thứ gì bên trong.
+Công cụ dòng lệnh quét **file nén** (ZIP, RAR, 7z, TAR, GZ, BZ2, XZ, Office Open XML…) tìm dấu hiệu **trojan,
+keylogger, worm, ransomware, stealer, backdoor/RAT, downloader** – *trước khi* bạn giải nén hay mở bất cứ thứ gì.
 
-> ⚠️ ArchiveGuard là công cụ **hỗ trợ phát hiện**, không thay thế phần mềm diệt virus. Kết quả
-> "SẠCH" chỉ có nghĩa là không thấy dấu hiệu nguy hiểm, không phải bảo đảm an toàn tuyệt đối.
+> ⚠️ Công cụ **hỗ trợ phát hiện**, không thay thế antivirus. SẠCH nghĩa là *không thấy dấu hiệu*, không phải bảo
+> đảm an toàn. Xem [Khi nào không nên dùng](#khi-nào-không-nên-dùng).
 
-## Tính năng
+## Tính năng chính
 
-- **Không bao giờ giải nén ra đĩa:** mọi thứ được đọc trong bộ nhớ, nên đường dẫn độc kiểu `../../evil.exe`
-  (Zip Slip) không ghi đè được gì.
-- **Đi vào file nén lồng nhau** (zip trong rar trong 7z…) với một **ngân sách tài nguyên chung** chống archive bomb:
-  giải nén theo kiểu streaming, dừng ngay giữa chừng khi vượt giới hạn byte, số entry, độ sâu hay thời gian.
-- **Nhiều lớp phát hiện:** tên file giả mạo, nội dung đội lốt, packer (UPX, Themida…), chuỗi hành vi
-  (keylogger, tiêm tiến trình, ransomware, đánh cắp dữ liệu…), **macro Office** (giải nén mã nguồn VBA, template
-  tải từ ngoài), **shortcut `.lnk`** gọi LOLBin, **PowerShell mã hóa** (giải mã rồi dò tiếp), **cấu trúc ZIP bất
-  thường** (entry bị giấu, entry chồng nhau), mã băm từ MalwareBazaar + URLhaus (+ VirusTotal tùy chọn), YARA
-  (kèm 140 file luật signature-base) và ClamAV (tùy chọn).
-- **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, file hỏng, định dạng chưa hỗ trợ, engine lỗi hay
-  vượt giới hạn đều cho kết luận `CHƯA QUÉT ĐỦ`.
-- **Parser không chạy trong process chính:** mặc định mỗi file nén được quét trong một worker có hard timeout,
-  giới hạn CPU/RAM và **sandbox hệ điều hành** (Linux: Landlock + seccomp + chặn mạng; macOS: sandbox-exec).
-  Có image Docker cứng hóa cho production.
+- **Không giải nén ra đĩa**, đi vào file nén lồng nhau với **ngân sách tài nguyên chung** chống archive bomb.
+- **Parser chạy trong worker có sandbox** (Linux: Landlock + seccomp + chặn mạng; macOS: sandbox-exec), hard timeout,
+  giới hạn CPU/RAM. Có image Docker cứng hóa.
+- **Nhiều lớp phát hiện:** tên file giả mạo, packer, chuỗi hành vi (gắn mã MITRE ATT&CK), macro Office, shortcut
+  `.lnk`, PowerShell mã hóa, cấu trúc ZIP bất thường, mã băm MalwareBazaar + URLhaus, YARA (kèm luật signature-base),
+  ClamAV và VirusTotal (tùy chọn).
+- **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, hỏng, quá lớn, định dạng chưa hỗ trợ → `CHƯA QUÉT ĐỦ`.
+- **Vận hành:** file cấu hình, `--fail-on` cho pipeline, `--allowlist`, số liệu Prometheus, cập nhật mã băm có chữ ký.
 
 ## Cài đặt
 
-Cần Python 3.10 trở lên.
+Cần Python 3.10+.
 
 ```bash
-git clone https://github.com/nakame9/archive-guard.git
-cd archive-guard
-pip install --require-hashes -r requirements.txt && pip install --no-deps -e .   # đúng phiên bản đã kiểm tra, có hash
-# hoặc: pip install -e ".[yara]"   ([yara]: luật YARA + dò chuỗi nhanh hơn ~25 lần; bỏ đi nếu không cài được)
+git clone https://github.com/nakame9/archive-guard.git && cd archive-guard
+pip install --require-hashes -r requirements.txt && pip install --no-deps -e .   # đúng phiên bản đã kiểm tra
 ```
 
-Tùy chọn: `unrar` hoặc 7-Zip trong PATH để đọc nội dung RAR; ClamAV để có thêm engine chữ ký.
-Chi tiết: [docs/USAGE.md](docs/USAGE.md#cài-thêm).
+Nên có thêm `unrar` (đọc nội dung RAR) và ClamAV (tùy chọn) – xem [Cài thêm](docs/USAGE.md#cài-thêm).
+Docker: [docs/USAGE.md#docker](docs/USAGE.md#docker).
 
 ## Dùng nhanh
 
@@ -46,30 +39,23 @@ Chi tiết: [docs/USAGE.md](docs/USAGE.md#cài-thêm).
 archiveguard file.zip                       # quét một file
 archiveguard Downloads/                     # quét mọi file nén trong thư mục
 archiveguard tailieu.rar -p 123456          # thử mật khẩu
-archiveguard file.zip --json baocao.json    # xuất báo cáo JSON
-archiveguard Downloads/ --require-sandbox   # production: từ chối quét nếu thiếu sandbox file/mạng
-archiveguard --update-db                    # cập nhật mã băm đã ký (cần [update])
-archiveguard in/ --config ag.toml --fail-on malicious --stats ag.prom   # pipeline: xem docs/USAGE.md#vận-hành-pipeline-và-giám-sát
+archiveguard file.zip --json baocao.json    # báo cáo JSON
+archiveguard Downloads/ --require-sandbox   # từ chối quét nếu máy thiếu sandbox
 ```
-
-Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm; `[T…]` là mã MITRE ATT&CK, `khả năng` = một mình chưa đủ gắn cờ):
 
 ```text
 == hoa-don-thang-10.zip ==
   [NGUY HIỂM 100] hoa-don-thang-10.zip > HoaDon_T10.pdf.exe
       HIGH     Trojan / ngụy trang: Đuôi kép giả mạo: trông như .pdf nhưng thực ra là .exe [T1036.007]
-      HIGH     Keylogger (ghi phím): Chứa nhãn ghi phím đặc trưng của keylogger [T1056.001]
-               khớp: [backspace], [capslock], [enter]
       HIGH     Keylogger (ghi phím): Bắt phím VÀ gửi dữ liệu ra ngoài – chuỗi hành vi của keylogger [T1056.001]
                khớp: api.telegram.org/bot, getasynckeystate
       MEDIUM   Stealer (đánh cắp dữ liệu): Gửi dữ liệu ra ngoài qua Telegram bot / Discord webhook / SMTP [T1567] · khả năng
-               khớp: api.telegram.org/bot
-      LOW      Đáng chú ý: Có file thực thi/script .exe [T1204.002] · khả năng
   [ĐÁNG NGỜ 30] hoa-don-thang-10.zip > autorun.inf
       MEDIUM   Worm (tự lây lan): autorun.inf – cơ chế tự chạy mà worm USB hay dùng [T1091]
-  Đã quét 4 file: 1 nguy hiểm, 1 đáng ngờ, 0 chưa quét đủ, 2 sạch
   KẾT LUẬN: NGUY HIỂM – dấu hiệu: Keylogger (ghi phím), Stealer (đánh cắp dữ liệu), Trojan / ngụy trang, Worm (tự lây lan)
 ```
+
+`[T…]` là mã MITRE ATT&CK; `khả năng` = API mà phần mềm hợp pháp cũng dùng, một mình không đủ gắn cờ.
 
 | Kết luận | Mã thoát | Ý nghĩa |
 |---|---|---|
@@ -81,40 +67,40 @@ Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm; `[T…]` là mã
 
 ## Độ chính xác đã đo
 
-Trên **70 gói phần mềm sạch chưa từng dùng để chỉnh luật** (bản 0.12.0): phần mềm thông dụng bị gắn ĐÁNG NGỜ
-**2,0%**, công cụ hai mặt (hook bàn phím, tiêm tiến trình, kiểm thử xâm nhập) **10,5%**, NGUY HIỂM **0%**.
-API mà phần mềm hợp pháp cũng dùng chỉ được coi là *khả năng*; kết luận NGUY HIỂM cần nhiều chỉ dấu độc lập
-([cách chấm điểm](docs/RULES.md#cách-chấm-điểm), có mã MITRE ATT&CK cho từng luật).
-**Khả năng phát hiện mã độc thật (recall) chưa được đo.**
-Chi tiết và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+Trên 70 gói phần mềm sạch **chưa từng dùng để chỉnh luật**: phần mềm thông dụng bị gắn ĐÁNG NGỜ **2,0%**, công cụ
+hai mặt (debugger, kiểm thử xâm nhập, hook bàn phím) **10,5%**, NGUY HIỂM **0%**. **Recall trên mã độc thật chưa
+được đo.** Phương pháp, số liệu từng vòng và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
-## Khi nào KHÔNG nên dùng (hoặc không nên chỉ dùng mình nó)
+## Khi nào không nên dùng
 
 | Tình huống | Vì sao | Nên làm gì |
 |---|---|---|
-| Thay cho antivirus/EDR | Không giám sát thời gian thực, không chạy thử file (phân tích động), không gỡ mã độc | Dùng ArchiveGuard như một lớp **kiểm tra trước khi giải nén**, bên cạnh AV |
-| Quyết định mở một file nhắm thẳng vào bạn chỉ vì kết luận SẠCH | SẠCH = không thấy dấu hiệu; recall trên mã độc thật **chưa đo**; mã độc bị pack/obfuscate mạnh hoặc tải payload lúc chạy để lộ rất ít | Mở trong máy ảo, kết hợp công cụ khác |
-| Máy cách ly mạng (air-gapped) không cập nhật được | Danh sách mã băm cũ dần (mẫu quá 12 tháng bị bỏ ở lần cập nhật); heuristic và YARA vẫn chạy | Chép `malwarebazaar.txt` + chữ ký `.sigstore.json` từ Release `hash-db`, xác minh trên máy có mạng, rồi dùng `--hashes` |
-| File nén rất lớn hoặc định dạng chưa hỗ trợ (ISO, CAB, WIM, Zstandard, NSIS…) | Vượt giới hạn / không giải nén được → **CHƯA QUÉT ĐỦ**, không phải SẠCH | Tăng giới hạn, hoặc giải nén bằng công cụ khác trong máy ảo rồi quét phần bên trong |
-| Dữ liệu không tin cậy trên Windows hoặc ARM mà không có Docker/WSL | Windows chưa có sandbox file/mạng; ARM chưa có seccomp (Unix socket còn mở) | Docker/WSL2 trên Linux x86_64; dùng `--require-sandbox` để không quét khi thiếu sandbox |
-| Tài liệu nhạy cảm kèm `--virustotal` | Mã băm gửi lên VirusTotal cho biết file đó tồn tại | Không bật `--virustotal` cho dữ liệu nội bộ |
+| Thay cho antivirus/EDR | Không giám sát thời gian thực, không chạy thử file, không gỡ mã độc | Dùng như lớp **kiểm tra trước khi giải nén**, bên cạnh AV |
+| Mở file nhắm thẳng vào bạn chỉ vì kết luận SẠCH | Recall chưa đo; mã độc bị pack mạnh hoặc tải payload lúc chạy để lộ rất ít | Mở trong máy ảo, kết hợp công cụ khác |
+| Máy cách ly mạng không cập nhật được | Danh sách mã băm cũ dần; heuristic và YARA vẫn chạy | Chép file mã băm đã ký từ Release `hash-db`, xác minh ở máy có mạng, dùng `--hashes` |
+| File rất lớn, định dạng chưa hỗ trợ (ISO, CAB, WIM, Zstandard…) | Kết quả là CHƯA QUÉT ĐỦ | Tăng giới hạn, hoặc giải nén trong máy ảo rồi quét phần bên trong |
+| Dữ liệu không tin cậy trên Windows/ARM không có Docker/WSL | Windows chưa có sandbox file/mạng; ARM chưa có seccomp | Docker/WSL2 trên Linux x86_64 + `--require-sandbox` |
+| Tài liệu nhạy cảm kèm `--virustotal` | Mã băm gửi đi cho biết file đó tồn tại | Đừng bật `--virustotal` cho dữ liệu nội bộ |
 
 ## Tài liệu
 
 | Bạn muốn | Đọc |
 |---|---|
-| Mọi tùy chọn, định dạng JSON, cô lập & sandbox, Docker, cập nhật mã băm, giới hạn cần biết | [docs/USAGE.md](docs/USAGE.md) |
+| Mọi tùy chọn, JSON, sandbox, Docker, cấu hình, `--fail-on`, allowlist, số liệu | [docs/USAGE.md](docs/USAGE.md) |
+| Đưa vào GitHub Actions, GitLab CI, pre-commit | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
 | Gặp lỗi, mã thoát 4, sandbox không bật | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
-| Đưa vào GitHub Actions, GitLab CI, pre-commit, Docker | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
-| Hiểu code: module, luồng quét, ngân sách, **muốn sửa X thì sửa ở đâu** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| Cách chấm điểm, thêm luật / YARA / mã băm | [docs/RULES.md](docs/RULES.md) |
-| Số liệu đo, phương pháp, cách tự đo recall | [docs/BENCHMARK.md](docs/BENCHMARK.md) |
-| Đóng góp code, viết luật, đo báo nhầm trước khi merge, quy trình review luật | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Báo nhầm / bỏ sót (dữ liệu để cải thiện luật) | [Mở issue](https://github.com/nakame9/archive-guard/issues/new/choose) |
-| Định hướng sắp tới | [docs/ROADMAP.md](docs/ROADMAP.md) |
-| Báo lỗ hổng bảo mật | [SECURITY.md](SECURITY.md) |
-| Lịch sử thay đổi | [CHANGELOG.md](CHANGELOG.md) |
+| Cách chấm điểm, các lớp phát hiện, thêm luật | [docs/RULES.md](docs/RULES.md) |
+| Mô hình bảo mật, chuỗi cung ứng, xác minh bản phát hành | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) |
+| Hiểu code: module, luồng quét, muốn sửa X thì sửa ở đâu | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Định hướng sắp tới · lịch sử thay đổi | [docs/ROADMAP.md](docs/ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) |
+
+## Đóng góp, báo lỗi, bảo mật
+
+- **Báo nhầm / bỏ sót** (dữ liệu quý nhất để cải thiện luật): [mở issue](https://github.com/nakame9/archive-guard/issues/new/choose).
+- **Đóng góp code hoặc luật:** [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Lỗ hổng bảo mật:** báo riêng theo [SECURITY.md](SECURITY.md), đừng mở issue công khai.
 
 ## Giấy phép
 
-[MIT](LICENSE). Công cụ chỉ dùng cho mục đích phòng thủ và học tập.
+Mã nguồn: [MIT](LICENSE). Luật YARA, dữ liệu mã băm và file mẫu đi kèm có giấy phép/điều khoản riêng:
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Chỉ dùng cho mục đích phòng thủ và học tập.

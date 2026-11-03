@@ -1,6 +1,6 @@
 name: release
 
-# Phát hành khi đẩy tag vX.Y.Z (tag nên được ký: git tag -s, xem SECURITY.md):
+# Phát hành khi đẩy tag vX.Y.Z (tag nên được ký: git tag -s, xem docs/MAINTAINING.md):
 #   1. build sdist + wheel bằng công cụ pin theo hash (.github/requirements-tools.txt)
 #   2. SBOM CycloneDX của môi trường cài đặt thật (dependency lấy từ requirements.txt có hash)
 #   3. provenance SLSA ký bằng Sigstore (gh attestation verify) + chữ ký Sigstore cho từng file (.sigstore.json)
@@ -118,4 +118,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
-            --verify-tag --notes "Xem CHANGELOG.md. Cách xác minh chữ ký, provenance và SBOM: SECURITY.md."
+            --verify-tag --notes "Xem CHANGELOG.md. Cách xác minh chữ ký, provenance và SBOM: docs/SECURITY-MODEL.md."

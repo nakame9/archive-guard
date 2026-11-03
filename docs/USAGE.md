@@ -228,7 +228,7 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop AL
 
 Image chạy bằng user thường (uid 10001), thư mục cần quét được gắn **chỉ đọc** vào `/scan`. Image có `unrar`
 (đọc nội dung RAR, pin theo phiên bản + SHA-256), không có ClamAV và 7-Zip. Base image pin theo digest, thư viện
-Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản mọi thành phần (xem SECURITY.md). `--update-hashes` cần mạng, nên hãy build lại image để có danh
+Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản mọi thành phần (xem [SECURITY-MODEL.md](SECURITY-MODEL.md#chuỗi-cung-ứng)). `--update-hashes` cần mạng, nên hãy build lại image để có danh
 sách mã băm mới.
 
 ## Mã băm mã độc từ MalwareBazaar

@@ -8,6 +8,11 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 ## [Chưa phát hành]
 
 ### Tài liệu & cộng đồng
+- Bốn tab trên trang GitHub, mỗi tab một nhóm người đọc: README rút gọn thành trang giới thiệu; CONTRIBUTING chỉ cho
+  người đóng góp (việc của người giữ repo chuyển sang `docs/MAINTAINING.md`); SECURITY.md chỉ còn chính sách (phần kỹ
+  thuật chuyển sang `docs/SECURITY-MODEL.md`); `THIRD_PARTY_NOTICES.md` ghi giấy phép/điều khoản của luật
+  signature-base, dữ liệu abuse.ch và file mẫu rarfile (LICENSE giữ nguyên văn MIT để GitHub nhận diện), và được
+  đóng gói kèm wheel.
 - README: "Khi nào KHÔNG nên dùng". Thêm docs/TROUBLESHOOTING.md, docs/INTEGRATION.md (GitHub Actions, GitLab CI,
   pre-commit, Docker), docs/ROADMAP.md.
 - `.pre-commit-hooks.yaml`: dùng ArchiveGuard làm hook pre-commit (`id: archiveguard`).
