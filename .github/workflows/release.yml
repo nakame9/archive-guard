@@ -10,9 +10,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+    branches: [tmp/supply-chain]  # TẠM: chạy thử trên nhánh này
   workflow_dispatch:
-  push:  # TẠM: chạy thử trên nhánh này
-    branches: [tmp/supply-chain]
 
 permissions: {}
 
