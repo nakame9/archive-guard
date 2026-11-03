@@ -33,7 +33,7 @@ CI chạy test trên Linux, Windows và macOS với Python 3.10 và 3.13, cộng
    ```bash
    pip install --require-hashes -r .github/requirements-tools.txt
    uv pip compile pyproject.toml --extra yara --universal --python-version 3.10 --generate-hashes -o requirements.txt
-   uv pip compile pyproject.toml --extra yara --extra dev --universal --python-version 3.10 --generate-hashes -o requirements-dev.txt
+   uv pip compile pyproject.toml --extra yara --extra update --extra dev --universal --python-version 3.10 --generate-hashes -o requirements-dev.txt
    ```
 7. Ghi thay đổi vào mục `[Chưa phát hành]` của [CHANGELOG.md](CHANGELOG.md).
 

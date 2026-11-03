@@ -37,7 +37,7 @@ jobs:
           # -o vào bản sao của lock hiện có: uv giữ nguyên các phiên bản đã pin, chỉ đổi khi pyproject.toml đòi
           cp requirements.txt /tmp/r.txt && cp requirements-dev.txt /tmp/rd.txt
           uv pip compile pyproject.toml --extra yara --universal --python-version 3.10 --generate-hashes -q -o /tmp/r.txt
-          uv pip compile pyproject.toml --extra yara --extra dev --universal --python-version 3.10 --generate-hashes -q -o /tmp/rd.txt
+          uv pip compile pyproject.toml --extra yara --extra update --extra dev --universal --python-version 3.10 --generate-hashes -q -o /tmp/rd.txt
           diff <(grep -E "^[a-z]" requirements.txt) <(grep -E "^[a-z]" /tmp/r.txt)
           diff <(grep -E "^[a-z]" requirements-dev.txt) <(grep -E "^[a-z]" /tmp/rd.txt)
 

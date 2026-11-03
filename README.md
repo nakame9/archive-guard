@@ -46,6 +46,8 @@ archiveguard Downloads/                     # quét mọi file nén trong thư m
 archiveguard tailieu.rar -p 123456          # thử mật khẩu
 archiveguard file.zip --json baocao.json    # xuất báo cáo JSON
 archiveguard Downloads/ --require-sandbox   # production: từ chối quét nếu thiếu sandbox file/mạng
+archiveguard --update-db                    # cập nhật mã băm đã ký (cần [update])
+archiveguard in/ --config ag.toml --fail-on malicious --stats ag.prom   # pipeline: xem docs/USAGE.md#vận-hành-pipeline-và-giám-sát
 ```
 
 Ví dụ (file mẫu vô hại tạo trong lúc thử nghiệm; `[T…]` là mã MITRE ATT&CK, `khả năng` = một mình chưa đủ gắn cờ):

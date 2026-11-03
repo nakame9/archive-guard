@@ -7,6 +7,21 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.16.0] – 2026-11-03
+
+### Vận hành
+- `--update-db`: tải danh sách mã băm đã ký từ GitHub Release `hash-db`, xác minh chữ ký Sigstore (đúng workflow
+  `update-hashes.yml` trên `main`) trước khi ghi; không cần Auth-Key. Cần `pip install "archive-guard[update]"`.
+- Workflow `update-hashes` chạy hằng ngày: ký + đăng Release `hash-db` và tự kiểm tra bằng `--update-db`; thứ Hai
+  commit vào main qua GitHub API (commit được GitHub ký).
+- `--config FILE` (TOML) và biến môi trường `ARCHIVEGUARD_<TÊN>`; dòng lệnh > biến môi trường > file > mặc định.
+  Không tự đọc file cấu hình trong thư mục hiện tại.
+- `--fail-on suspicious,malicious,incomplete`: chọn kết luận nào làm lệnh thất bại; lỗi luôn là mã 3.
+- `--allowlist FILE`: `sha256:` hoặc `path:` (đường dẫn trên đĩa); không bao giờ che mã độc đã biết; phát hiện bị bỏ
+  qua vẫn ghi trong JSON (`allowlisted`, `suppressed`).
+- `--stats FILE`: số liệu Prometheus (kết luận, số file, lỗi, thời gian, mã thoát) cho node_exporter/Pushgateway.
+- Thêm dependency `tomli` (chỉ Python 3.10).
+
 ### Chuỗi cung ứng
 - Lock file có hash (`requirements.txt`, `requirements-dev.txt`, `.github/requirements-tools.txt`, tạo bằng
   `uv pip compile`); CI, Docker và release đều cài bằng `pip install --require-hashes`. CI kiểm tra lock khớp

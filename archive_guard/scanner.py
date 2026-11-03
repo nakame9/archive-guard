@@ -1,7 +1,9 @@
 """Điều phối việc quét: đọc file, đi vào file nén lồng nhau, chấm điểm từng file."""
 from __future__ import annotations
 
+import fnmatch
 import hashlib
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,6 +69,8 @@ class FileResult:
     sha256: str = ""
     findings: list = field(default_factory=list)
     note: str = ""
+    allowlisted: str = ""  # mục allowlist đã khớp; phát hiện bị bỏ qua nằm trong suppressed
+    suppressed: list = field(default_factory=list)
 
     @property
     def score(self):
@@ -80,7 +84,9 @@ class FileResult:
     def to_dict(self):
         return {"path": self.path, "kind": self.kind, "size": self.size, "sha256": self.sha256,
                 "score": self.score, "verdict": self.verdict, "note": self.note,
-                "findings": [f.to_dict() for f in self.findings]}
+                "findings": [f.to_dict() for f in self.findings],
+                **({"allowlisted": self.allowlisted, "suppressed": [f.to_dict() for f in self.suppressed]}
+                   if self.allowlisted else {})}
 
 
 @dataclass
@@ -143,10 +149,40 @@ def rules_fingerprint(hashes: dict, yara_files) -> dict:
     return parts
 
 
+_SHA256 = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def load_allowlist(paths) -> list[tuple[str, str]]:
+    """Mỗi dòng: `sha256:<mã>` (hoặc chỉ mã SHA-256) hay `path:<glob>`; phần sau dấu cách là ghi chú, '#' là chú thích.
+
+    Dòng sai định dạng → ValueError: allowlist gõ nhầm không được âm thầm bị bỏ qua.
+    """
+    entries = []
+    for p in paths:
+        for n, line in enumerate(Path(p).read_text(encoding="utf-8").splitlines(), 1):
+            item = line.split("#", 1)[0].split(maxsplit=1)
+            if not item:
+                continue
+            value = item[0] if not _SHA256.fullmatch(item[0]) else "sha256:" + item[0]
+            kind, _, rest = value.partition(":")
+            if kind == "sha256" and _SHA256.fullmatch(rest):
+                entries.append(("sha256", rest.lower()))
+            elif kind == "path" and rest:
+                entries.append(("path", rest))
+            else:
+                raise ValueError(f"{p}:{n}: cần `sha256:<64 ký tự hex>` hoặc `path:<glob>`, gặp {value!r}")
+    return entries
+
+
+def _never_allowlisted(f) -> bool:
+    """Mã độc đã biết (mã băm, ClamAV, chữ ký YARA của họ mã độc) không bao giờ bị allowlist che đi."""
+    return f.engine in ("hash", "clamav") or f.category == "known_malware"
+
+
 class Scanner:
     def __init__(self, *, passwords=(), max_depth=5, max_file_mb=256, max_total_mb=4096,
                  max_files=20000, max_ratio=100, timeout=300, max_archive_mb=4096, hash_files=(), yara_paths=(),
-                 use_yara=True, use_clamav=True):
+                 use_yara=True, use_clamav=True, allowlist=()):
         self.passwords = list(passwords)
         self.max_depth = max_depth
         self.max_file = max_file_mb * MB
@@ -155,6 +191,7 @@ class Scanner:
         self.max_ratio = max_ratio
         self.timeout = timeout
         self.max_archive = max_archive_mb * MB
+        self.allowlist = load_allowlist(allowlist)
         cache = malwarebazaar.cache_path()
         hash_status = (f"cache MalwareBazaar {time.strftime('%Y-%m-%d', time.localtime(cache.stat().st_mtime))}"
                        if cache.exists() else "chạy --update-hashes để tải thêm từ MalwareBazaar")
@@ -200,7 +237,31 @@ class Scanner:
                     "tăng --timeout, hoặc dùng --no-clamav)")
             else:
                 report.files[0].findings += found
+        self._apply_allowlist(path, report)
         return report
+
+    def _apply_allowlist(self, path, report):
+        """Bỏ qua phát hiện heuristic/YARA chung cho file (và mọi thứ bên trong file) có trong allowlist.
+
+        `path:` so với đường dẫn TRÊN ĐĨA của file được quét (do admin kiểm soát), không so với tên file bên trong
+        file nén (kẻ tấn công đặt tên tùy ý). Phần chưa quét được vẫn là CHƯA QUÉT ĐỦ.
+        """
+        if not self.allowlist or not report.files:
+            return
+        hashes = {v for k, v in self.allowlist if k == "sha256"}
+        on_disk = str(Path(path).resolve()).replace("\\", "/")
+        covered = {}  # đường dẫn hiển thị → mục allowlist
+        root = report.files[0]
+        match = next((f"path:{g}" for k, g in self.allowlist if k == "path" and fnmatch.fnmatchcase(on_disk, g)), None)
+        if match or root.sha256 in hashes:
+            covered[root.path] = match or f"sha256:{root.sha256}"
+        covered.update({f.path: f"sha256:{f.sha256}" for f in report.files if f.sha256 in hashes})
+        for f in report.files:
+            entry = next((e for p, e in covered.items() if f.path == p or f.path.startswith(p + " > ")), None)
+            if entry:
+                f.allowlisted = entry
+                f.suppressed = [x for x in f.findings if not _never_allowlisted(x)]
+                f.findings = [x for x in f.findings if _never_allowlisted(x)]
 
     def scan_bytes(self, data: bytes, name: str = "data") -> Report:
         report = Report(name)

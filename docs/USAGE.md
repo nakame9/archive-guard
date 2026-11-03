@@ -24,13 +24,18 @@ Thư mục được quét đệ quy; chỉ file có **chữ ký** của file né
 |---|---|---|---|
 | Đầu vào | `-p, --password` | – | Mật khẩu thử cho file nén (lặp lại được) |
 | Đầu ra | `--json FILE` | – | Ghi báo cáo chi tiết ra JSON |
+| | `--stats FILE` | – | Ghi số liệu Prometheus (xem [Vận hành](#vận-hành-pipeline-và-giám-sát)) |
+| | `--fail-on KẾT_LUẬN` | `suspicious,malicious,incomplete` | Kết luận nào làm lệnh thất bại |
 | | `-a, --all` | tắt | Liệt kê cả file sạch |
 | | `--no-color` | – | Tắt màu (cũng tắt khi có biến môi trường `NO_COLOR`) |
 | Luật | `--yara PATH` | – | Thêm file/thư mục luật YARA (lặp lại được) |
 | | `--hashes FILE` | – | Thêm danh sách mã băm mã độc (lặp lại được) |
 | | `--no-yara`, `--no-clamav` | – | Tắt engine tương ứng |
+| | `--allowlist FILE` | – | Bỏ qua phát hiện cho file đã kiểm duyệt (lặp lại được) |
+| Cấu hình | `--config FILE` | `$ARCHIVEGUARD_CONFIG` | File TOML; mọi tùy chọn cũng đặt được bằng `ARCHIVEGUARD_<TÊN>` |
 | Mã băm | `--update-hashes` | – | Tải mã băm theo họ từ MalwareBazaar (xem bên dưới) |
 | | `--auth-key KEY` | `$ABUSECH_AUTH_KEY` | Auth-Key của abuse.ch |
+| | `--update-db` | – | Tải danh sách mã băm đã ký, xác minh chữ ký (không cần Auth-Key) |
 | Giới hạn | `--max-archive-size MB` | 4096 | Kích thước file nén đầu vào |
 | | `--max-size MB` | 256 | Dung lượng mỗi file con được đọc |
 | | `--max-total MB` | 4096 | Tổng byte giải nén, tính cả các tầng lồng nhau |
@@ -56,11 +61,95 @@ Ngoài ra có hai giới hạn cố định: tổng **20.000 entry** (kể cả 
 Mã `3` là lỗi (không đọc được file, worker crash, lỗi ngoài dự kiến). Lỗi xử lý **không bao giờ** cho ra SẠCH.
 Khi vừa có dấu hiệu nguy hiểm vừa có phần chưa quét, kết luận theo dấu hiệu và kèm ghi chú `CHƯA ĐẦY ĐỦ`.
 Quét nhiều file thì mã thoát là của kết luận nặng nhất. Cách tính điểm: [RULES.md](RULES.md).
+`--fail-on` chọn kết luận nào được trả mã khác 0 (xem bên dưới).
+
+## Vận hành: pipeline và giám sát
+
+### File cấu hình và biến môi trường
+
+Mọi tùy chọn (trừ mật khẩu và Auth-Key) đặt được trong một file TOML, tên khóa giống tên tùy chọn:
+
+```toml
+# /etc/archiveguard.toml – nên đưa vào Git cùng pipeline
+timeout = 600
+max-total = 8192
+require-sandbox = true
+fail-on = ["malicious", "incomplete"]
+yara = ["/opt/rules/noi-bo"]
+allowlist = ["/etc/archiveguard/allowlist.txt"]
+stats = "/var/lib/node_exporter/textfile/archiveguard.prom"
+```
+
+Thứ tự ưu tiên: **dòng lệnh > biến môi trường `ARCHIVEGUARD_<TÊN>` > file cấu hình > mặc định**, vd.
+`ARCHIVEGUARD_TIMEOUT=900`, `ARCHIVEGUARD_NO_CLAMAV=true`, `ARCHIVEGUARD_YARA=/a:/b` (danh sách phân cách bằng
+`:` – Windows: `;`). Khóa sai tên, sai kiểu → dừng với mã 2, không âm thầm bỏ qua.
+
+File cấu hình **chỉ** được nạp khi chỉ định bằng `--config` hoặc `ARCHIVEGUARD_CONFIG`; không bao giờ tự đọc từ thư
+mục hiện tại – đó có thể chính là thư mục chứa file cần quét, nơi kẻ tấn công có thể đặt sẵn một file cấu hình.
+
+### `--fail-on`: ngưỡng thất bại của pipeline
+
+| Ví dụ | Hành vi |
+|---|---|
+| *(mặc định)* | ĐÁNG NGỜ (1), NGUY HIỂM (2), CHƯA QUÉT ĐỦ (4) đều thất bại – như trước |
+| `--fail-on malicious` | Chỉ NGUY HIỂM thất bại; ĐÁNG NGỜ và CHƯA QUÉT ĐỦ trả 0 (vẫn hiện trong báo cáo) |
+| `--fail-on malicious,incomplete` | Chặn thứ chắc chắn xấu và thứ chưa kiểm tra được; để người xem lại ĐÁNG NGỜ |
+
+Lỗi (mã 3) luôn thất bại. Bỏ `incomplete` khỏi `--fail-on` nghĩa là chấp nhận cho qua file **chưa được kiểm tra**
+(có mật khẩu, quá lớn, worker hết giờ…): chỉ làm vậy khi có lớp kiểm tra khác phía sau.
+
+### `--allowlist`: file đã kiểm duyệt
+
+Dành cho công cụ hai mặt mà bạn đã kiểm tra và tin dùng (debugger, công cụ kiểm thử xâm nhập nội bộ…):
+
+```text
+# allowlist.txt – mỗi dòng một mục, phần sau dấu cách là ghi chú
+sha256:6f2c…e91a  impacket-0.13.1-py3-none-any.whl, duyệt 2026-11-03
+6f2c…e91a                                  # chỉ mã SHA-256 cũng được
+path:/opt/vendor/approved/*.whl            # glob trên đường dẫn TRÊN ĐĨA, dùng / cả trên Windows
+```
+
+- `sha256:` khớp file nén gốc (bỏ qua mọi thứ bên trong) hoặc một file bên trong (chỉ file đó và những gì nằm trong nó).
+- `path:` khớp đường dẫn tuyệt đối của file được quét trên máy bạn, **không** khớp tên file bên trong file nén (kẻ tấn
+  công đặt tên tùy ý). Ai ghi được vào thư mục trong `path:` thì cũng qua được allowlist: chỉ dùng cho thư mục do
+  admin kiểm soát; ưu tiên `sha256:`.
+- **Không bao giờ** bỏ qua: trùng mã băm mã độc, ClamAV, luật YARA của họ mã độc (nhóm "Mã độc đã biết"). Phần chưa
+  quét được vẫn là CHƯA QUÉT ĐỦ.
+- Phát hiện bị bỏ qua vẫn có trong JSON (`allowlisted`, `suppressed` của từng file) và được in ra, để kiểm toán.
+- Dòng sai định dạng → dừng với mã 2.
+
+### `--stats`: số liệu cho Prometheus/Grafana
+
+`--stats FILE` ghi số liệu của lần chạy theo định dạng văn bản của Prometheus (ghi file tạm rồi đổi tên, không bao
+giờ để lại file viết dở):
+
+```text
+archiveguard_archives{verdict="clean"} 118
+archiveguard_archives{verdict="incomplete"} 3
+archiveguard_archives{verdict="suspicious"} 2
+archiveguard_archives{verdict="malicious"} 0
+archiveguard_files 5210
+archiveguard_errors 0
+archiveguard_duration_seconds 61.402
+archiveguard_archive_duration_max_seconds 9.115
+archiveguard_exit_code 4
+archiveguard_last_run_timestamp_seconds 1793690400
+archiveguard_info{version="0.16.0",rules_version="…"} 1
+```
+
+- Job định kỳ: ghi vào thư mục textfile collector của node_exporter (`--collector.textfile.directory`).
+- Job CI/batch: đẩy lên Pushgateway: `curl --data-binary @archiveguard.prom http://pushgateway:9091/metrics/job/archiveguard`.
+- Grafana: tỷ lệ CHƯA QUÉT ĐỦ = `archiveguard_archives{verdict="incomplete"} / sum(archiveguard_archives)`;
+  thời gian trung bình = `archiveguard_duration_seconds / sum(archiveguard_archives)`; cảnh báo khi
+  `time() - archiveguard_last_run_timestamp_seconds` quá lớn (job ngừng chạy).
+
+ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch vụ: không có cổng HTTP `/metrics`/`/health` nào để mở;
+"sức khỏe" của nó là `archiveguard_errors`, `archiveguard_exit_code` và thời điểm chạy gần nhất.
 
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.15.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.16.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
@@ -141,6 +230,18 @@ Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản m�
 sách mã băm mới.
 
 ## Mã băm mã độc từ MalwareBazaar
+
+**Cập nhật tại chỗ, không cần Auth-Key:**
+
+```bash
+pip install "archive-guard[update]"   # thư viện sigstore để xác minh chữ ký
+archiveguard --update-db
+```
+
+Workflow `update-hashes` chạy **mỗi ngày**: tải mã băm mới, **ký bằng Sigstore** và đăng lên GitHub Release
+[`hash-db`](https://github.com/nakame9/archive-guard/releases/tag/hash-db). `--update-db` tải file + chữ ký và chỉ
+ghi vào cache khi chữ ký do đúng workflow `update-hashes.yml` trên nhánh `main` của repo này tạo ra; chữ ký sai thì
+cache cũ giữ nguyên và lệnh trả mã 3. Chạy định kỳ bằng cron/systemd timer.
 
 Repo kèm sẵn `archive_guard/data/malwarebazaar.txt` (khoảng 20.000 mã), được workflow `update-hashes` tự tải từ
 [MalwareBazaar](https://bazaar.abuse.ch/) và commit **mỗi thứ Hai**. Chỉ cần `git pull` là có danh sách mới.

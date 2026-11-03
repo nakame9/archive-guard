@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archive-guard"
-version = "0.15.0"
+version = "0.16.0"
 description = "Quét file nén (ZIP, RAR, 7z, TAR, GZ…) tìm dấu hiệu trojan, keylogger, worm, ransomware"
 readme = "README.md"
 license = "MIT"
@@ -13,10 +13,12 @@ requires-python = ">=3.10"
 dependencies = [
     "py7zr>=1.1.3",  # Py7zIO.close() báo từng file giải nén xong
     "rarfile>=4.1",
+    "tomli>=1.1; python_version < '3.11'",  # đọc file cấu hình --config (3.11+ có sẵn tomllib)
 ]
 
 [project.optional-dependencies]
 yara = ["yara-python>=4.3"]
+update = ["sigstore>=3"]  # --update-db: xác minh chữ ký Sigstore của danh sách mã băm
 dev = ["pytest>=7", "ruff", "pytest-github-actions-annotate-failures", "pip-audit"]
 
 [project.scripts]

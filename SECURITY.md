@@ -23,6 +23,15 @@ Cách vượt sandbox của worker (đọc/ghi file ngoài phạm vi cho phép, 
 lỗ hổng, hãy báo riêng. Lớp nào đang bật trên máy nào: [docs/USAGE.md](docs/USAGE.md#cô-lập-và-sandbox-mặc-định).
 Windows chưa có sandbox file/mạng: khi xử lý dữ liệu không tin cậy trên Windows, hãy chạy trong Docker hoặc WSL.
 
+## Cấu hình và allowlist
+
+- File cấu hình chỉ được nạp từ `--config`/`ARCHIVEGUARD_CONFIG`, không tự tìm trong thư mục hiện tại; biến môi
+  trường `ARCHIVEGUARD_*` không được chuyển vào worker (worker nhận tùy chọn đã giải quyết qua dòng lệnh).
+- Allowlist không bao giờ che phát hiện "mã độc đã biết"; mục `path:` khớp đường dẫn trên đĩa, không khớp tên do
+  file nén tự khai. Một cách vượt allowlist khác những điều trên **là** lỗ hổng, hãy báo riêng.
+- `--update-db` chỉ chấp nhận chữ ký Sigstore của `.github/workflows/update-hashes.yml@refs/heads/main` trong repo
+  này (`malwarebazaar.DB_IDENTITY`).
+
 ## Cô lập bảo vệ cái gì, không bảo vệ cái gì
 
 Worker và sandbox nhằm **bảo vệ máy của bạn**: nếu một file độc khai thác được lỗi trong bộ giải nén (py7zr, rarfile,
