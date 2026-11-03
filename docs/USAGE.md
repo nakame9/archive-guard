@@ -129,14 +129,15 @@ Lớp ngoài cùng cho production: container không mạng, hệ thống file ch
 giới hạn RAM và số process. Sandbox của worker vẫn hoạt động **bên trong** container.
 
 ```bash
-docker build -t archive-guard .
+docker build --no-cache -t archive-guard .
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop ALL \
   --security-opt no-new-privileges --memory 2g --pids-limit 128 \
   -v "$PWD:/scan:ro" archive-guard .
 ```
 
-Image chạy bằng user thường (uid 10001), thư mục cần quét được gắn **chỉ đọc** vào `/scan`. Image không có
-ClamAV và `unrar` (thêm vào Dockerfile nếu cần). `--update-hashes` cần mạng, nên hãy build lại image để có danh
+Image chạy bằng user thường (uid 10001), thư mục cần quét được gắn **chỉ đọc** vào `/scan`. Image có `unrar`
+(đọc nội dung RAR, pin theo phiên bản + SHA-256), không có ClamAV và 7-Zip. Base image pin theo digest, thư viện
+Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản mọi thành phần (xem SECURITY.md). `--update-hashes` cần mạng, nên hãy build lại image để có danh
 sách mã băm mới.
 
 ## Mã băm mã độc từ MalwareBazaar
