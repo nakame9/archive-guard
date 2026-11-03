@@ -8,7 +8,8 @@ Cảm ơn bạn muốn góp sức. Trước khi sửa code, đọc [docs/ARCHITE
 ```bash
 git clone https://github.com/nakame9/archive-guard.git
 cd archive-guard
-pip install -e ".[yara,dev]"
+pip install --require-hashes -r requirements-dev.txt   # đúng phiên bản CI dùng, kiểm tra hash từng gói
+pip install --no-deps -e .
 pytest -q          # chạy toàn bộ test (~15 giây)
 ruff check .       # lint: chỉ bắt lỗi thật (tên chưa định nghĩa, import thừa…)
 ```
@@ -27,13 +28,35 @@ CI chạy test trên Linux, Windows và macOS với Python 3.10 và 3.13, cộng
 5. **JSON chỉ được thêm trường.** Đổi tên, xóa hay đổi nghĩa một trường phải tăng `SCHEMA_VERSION` trong `cli.py`
    và cập nhật `SCHEMA_V1` trong `tests/test_cli.py`.
 6. **Không thêm dependency bắt buộc** nếu thư viện chuẩn làm được; thành phần nâng cao để ở `optional-dependencies`.
+   Đổi dependency trong `pyproject.toml` thì tạo lại lock file bằng `uv` đã pin (job `audit` của CI kiểm tra):
+
+   ```bash
+   pip install --require-hashes -r .github/requirements-tools.txt
+   uv pip compile pyproject.toml --extra yara --universal --python-version 3.10 --generate-hashes -o requirements.txt
+   uv pip compile pyproject.toml --extra yara --extra dev --universal --python-version 3.10 --generate-hashes -o requirements-dev.txt
+   ```
 7. Ghi thay đổi vào mục `[Chưa phát hành]` của [CHANGELOG.md](CHANGELOG.md).
 
 ## Phát hành
 
 1. Chuyển mục `[Chưa phát hành]` trong CHANGELOG thành số phiên bản mới kèm ngày.
 2. Tăng `version` trong `pyproject.toml` và `__version__` trong `archive_guard/__init__.py`.
-3. Commit, đợi CI xanh, rồi gắn tag: `git tag v0.11.0 && git push --tags`.
+3. Commit, đợi CI xanh, rồi gắn **tag có chữ ký**: `git tag -s v1.2.3 -m v1.2.3 && git push origin v1.2.3`.
+4. Workflow `release` tự làm phần còn lại: build, SBOM, provenance + chữ ký Sigstore, PyPI, GitHub Release.
+   Tag không khớp `version` trong `pyproject.toml` thì dừng ngay. Chạy thử (không phát hành):
+   Actions → release → Run workflow.
+
+**Thiết lập một lần** (người giữ repo):
+
+- Ký tag bằng khóa SSH: `git config --global gpg.format ssh`,
+  `git config --global user.signingkey ~/.ssh/id_ed25519.pub`, rồi thêm khóa đó vào GitHub dưới dạng
+  **Signing key** (Settings → SSH and GPG keys) để tag hiện "Verified". Có thể bắt buộc bằng ruleset
+  (Settings → Rules → Rulesets → nhắm vào tag → Require signed commits).
+- PyPI Trusted Publishing: trên pypi.org → Account settings → Publishing → *Add a new pending publisher*:
+  project `archive-guard`, owner `nakame9`, repository `archive-guard`, workflow `release.yml`, environment `pypi`.
+  Không cần token PyPI nào trong repo.
+- GitHub → Settings → Environments → tạo môi trường `pypi` (nên bật *Required reviewers* để mỗi lần đăng PyPI phải
+  có người duyệt).
 
 ## Báo nhầm / bỏ sót
 

@@ -20,8 +20,9 @@ archive-guard/
 ├── tests/                  # mỗi file test một mảng (xem bảng cuối trang); helpers.py tạo mẫu thử
 ├── docs/                   # USAGE, ARCHITECTURE, RULES, BENCHMARK
 ├── benchmark/              # danh sách SHA-256 bộ dữ liệu sạch + kết quả đo thô (không chứa mẫu)
-├── Dockerfile              # image chạy bằng user thường cho container cứng hóa
-└── .github/                # CI, cập nhật mã băm, mẫu issue/PR, dependabot
+├── Dockerfile              # image chạy bằng user thường; base image, thư viện, unrar đều pin (digest/hash)
+├── requirements.txt        # lock có hash (uv pip compile) – runtime + yara; requirements-dev.txt thêm công cụ dev
+└── .github/                # CI (test, lint, pip-audit), release (SBOM, Sigstore, PyPI), mã băm, dependabot
 ```
 
 ## Phụ thuộc giữa các module

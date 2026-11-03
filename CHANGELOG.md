@@ -7,6 +7,19 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Chuỗi cung ứng
+- Lock file có hash (`requirements.txt`, `requirements-dev.txt`, `.github/requirements-tools.txt`, tạo bằng
+  `uv pip compile`); CI, Docker và release đều cài bằng `pip install --require-hashes`. CI kiểm tra lock khớp
+  `pyproject.toml`.
+- `pip-audit` trên mọi dependency đã pin, mỗi lần push và mỗi ngày. Dependabot cho pip (2 thư mục), GitHub Actions
+  và Docker.
+- Mọi GitHub Action pin theo SHA commit; workflow mặc định chỉ có quyền đọc.
+- Workflow `release`: build tái lập (wheel), SBOM CycloneDX, provenance SLSA + chữ ký Sigstore, PyPI Trusted
+  Publishing với attestation PEP 740, GitHub Release kèm `SHA256SUMS`. Cách xác minh: SECURITY.md.
+- Dockerfile: base image pin theo digest; **thêm `unrar`** (pin phiên bản + SHA-256 từ snapshot.debian.org) để image
+  đọc được nội dung RAR; CI build `--no-cache` và quét thử RAR có mật khẩu trong container cứng hóa.
+- SECURITY.md: bảng các thành phần đã pin, cách xác minh bản phát hành, lịch sử CVE của unrar, 7-Zip, ClamAV.
+
 ## [0.15.0] – 2026-11-01
 
 ### Thêm

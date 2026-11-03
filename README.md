@@ -31,7 +31,8 @@ Cần Python 3.10 trở lên.
 ```bash
 git clone https://github.com/nakame9/archive-guard.git
 cd archive-guard
-pip install -e ".[yara]"    # [yara]: thêm luật YARA và dò chuỗi nhanh hơn ~25 lần; bỏ đi nếu không cài được
+pip install --require-hashes -r requirements.txt && pip install --no-deps -e .   # đúng phiên bản đã kiểm tra, có hash
+# hoặc: pip install -e ".[yara]"   ([yara]: luật YARA + dò chuỗi nhanh hơn ~25 lần; bỏ đi nếu không cài được)
 ```
 
 Tùy chọn: `unrar` hoặc 7-Zip trong PATH để đọc nội dung RAR; ClamAV để có thêm engine chữ ký.

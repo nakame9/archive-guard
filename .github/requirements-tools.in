@@ -1,0 +1,5 @@
+# Công cụ bảo trì: build + SBOM (release.yml), uv để tạo/kiểm tra lock file (tests.yml, job audit).
+# Biên dịch (có hash):  uv pip compile .github/requirements-tools.in --python-version 3.13 --generate-hashes -o .github/requirements-tools.txt
+build
+cyclonedx-bom
+uv
