@@ -4,7 +4,9 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import re
+import struct
 import time
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from .extract import (
     archive_kind,
     iter_members,
     unsupported_container,
+    zip_anomalies,
 )
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
@@ -205,7 +208,8 @@ class Scanner:
         self.engines = {
             "heuristic": "bật",
             "hash": f"{len(self.hashes)} mã băm ({hash_status})",
-            "yara": yara_status,
+            "yara": yara_status + "".join(f"; {v.read_text(encoding='utf-8').strip()}"  # nguồn + phiên bản bộ luật đi kèm
+                                          for v in sorted((DATA_DIR / "rules").glob("*/VERSION")) if use_yara),
             "clamav": "bật" if self.use_clamav else ("tắt" if not use_clamav else "chưa cài"),
         }
         self.rules_components = rules_fingerprint(self.hashes, yara_files)
@@ -328,6 +332,23 @@ class Scanner:
         res.findings.append(f)
         report.incomplete.append(f"{display}: dừng – {f.title}")
 
+    @staticmethod
+    def _zip_structure(src) -> list:
+        try:
+            overlaps, hidden = zip_anomalies(src)
+        except (zipfile.BadZipFile, OSError, ValueError, struct.error):
+            return []  # file hỏng: đã được báo ở bước giải nén
+        out = []
+        if overlaps:
+            out.append(Finding("ARCHIVE.OVERLAP", HIGH, "archive_abuse",
+                               "Nhiều entry ZIP dùng chung một vùng dữ liệu – kỹ thuật zip bomb không lồng nhau",
+                               ", ".join(f"{a} ↔ {b}" for a, b in overlaps[:3])))
+        if hidden:
+            out.append(Finding("ARCHIVE.HIDDEN_ENTRY", HIGH, "evasion",
+                               "File có trong ZIP nhưng bị giấu khỏi danh mục – mỗi trình giải nén thấy nội dung khác",
+                               ", ".join(hidden[:5])))
+        return out
+
     def _walk(self, kind, src, name, display, depth, res, report, budget):
         if budget.stopped:
             return
@@ -356,6 +377,8 @@ class Scanner:
                 if m.note:
                     report.incomplete.append(f"{child}: {m.note}")
                 report.files.append(r)
+            if kind == "zip":
+                res.findings += self._zip_structure(src)
         except BudgetExceeded as e:  # ném ra NGAY trong lúc giải nén, giữa chừng một file con
             self._stop(budget, e, res, report, display)
         except EncryptedArchive as e:

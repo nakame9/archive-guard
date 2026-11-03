@@ -36,6 +36,8 @@ Thư mục được quét đệ quy; chỉ file có **chữ ký** của file né
 | Mã băm | `--update-hashes` | – | Tải mã băm theo họ từ MalwareBazaar (xem bên dưới) |
 | | `--auth-key KEY` | `$ABUSECH_AUTH_KEY` | Auth-Key của abuse.ch |
 | | `--update-db` | – | Tải danh sách mã băm đã ký, xác minh chữ ký (không cần Auth-Key) |
+| | `--virustotal` | tắt | Tra thêm **mã băm** trên VirusTotal (cần `VT_API_KEY`) |
+| | `--vt-limit N` | 20 | Số lượt tra VirusTotal tối đa mỗi lần chạy |
 | Giới hạn | `--max-archive-size MB` | 4096 | Kích thước file nén đầu vào |
 | | `--max-size MB` | 256 | Dung lượng mỗi file con được đọc |
 | | `--max-total MB` | 4096 | Tổng byte giải nén, tính cả các tầng lồng nhau |
@@ -134,7 +136,7 @@ archiveguard_duration_seconds 61.402
 archiveguard_archive_duration_max_seconds 9.115
 archiveguard_exit_code 4
 archiveguard_last_run_timestamp_seconds 1793690400
-archiveguard_info{version="0.16.0",rules_version="…"} 1
+archiveguard_info{version="0.17.0",rules_version="…"} 1
 ```
 
 - Job định kỳ: ghi vào thư mục textfile collector của node_exporter (`--collector.textfile.directory`).
@@ -149,7 +151,7 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.16.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.17.0", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
@@ -230,6 +232,15 @@ Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản m�
 sách mã băm mới.
 
 ## Mã băm mã độc từ MalwareBazaar
+
+Nguồn: MalwareBazaar (20 họ phổ biến + mẫu 7 ngày gần nhất) và **URLhaus** (file do các URL độc hại phát tán,
+1000 mẫu mới nhất), cùng một Auth-Key của abuse.ch.
+
+**VirusTotal (tùy chọn):** `--virustotal` tra mã băm của file thực thi/script/tài liệu (và file nén gốc) trên
+VirusTotal, ở process chính (worker không có mạng). Chỉ **mã băm** được gửi đi, không gửi file. Từ 5 engine phát
+hiện trở lên → `HASH.VIRUSTOTAL` (NGUY HIỂM). API miễn phí: 4 lượt/phút, 500 lượt/ngày (gặp giới hạn thì chờ 60 giây
+rồi thử lại); VirusTotal lỗi hay hết lượt không làm đổi kết luận. Khóa API lấy tại virustotal.com, đặt vào biến
+môi trường `VT_API_KEY`.
 
 **Cập nhật tại chỗ, không cần Auth-Key:**
 

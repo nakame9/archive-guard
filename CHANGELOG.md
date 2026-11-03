@@ -7,6 +7,22 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.17.0] – 2026-11-03
+
+### Thêm
+- Office: giải nén mã nguồn VBA (MS-OVBA) trong `.doc/.xls` và `vbaProject.bin` của `.docm/.xlsm`;
+  `DOC.MACRO_AUTOEXEC_EXEC` (macro tự chạy + gọi lệnh/tải file), luật hành vi chạy trên mã nguồn VBA;
+  `DOC.REMOTE_RESOURCE` (template/đối tượng tải từ ngoài, T1221, gồm cả `ms-msdt:`); `DOC.XLM_MACRO`.
+- `.lnk`: đọc cấu trúc MS-SHLLINK; `LNK.LOLBIN` (đích là cmd/powershell/mshta/rundll32… kèm tham số),
+  `LNK.PADDED_ARGS`.
+- `EXEC.PS_ENCODED`: giải mã PowerShell `-EncodedCommand` trong `.lnk`/script rồi chạy luật hành vi trên lệnh đã giải mã.
+- Cấu trúc ZIP: `ARCHIVE.OVERLAP` (entry dùng chung dữ liệu), `ARCHIVE.HIDDEN_ENTRY` (local header không có trong
+  danh mục); `NAME.CONTROL_CHARS`.
+- `ENTROPY.ENCRYPTED_BLOB` (mức khả năng): dữ liệu không rõ định dạng có entropy ≥ 7,95.
+- Nguồn mã băm thứ hai: URLhaus (cùng Auth-Key). `--virustotal` + `--vt-limit`: tra mã băm trên VirusTotal (tùy chọn).
+- Phiên bản + nguồn + giấy phép của bộ luật YARA đi kèm hiện trong dòng trạng thái và JSON (`engines.yara`).
+- 6 mẫu dương tính tổng hợp mới; 0 báo nhầm mới trên 260 gói phần mềm sạch (docs/BENCHMARK.md, vòng 5).
+
 ## [0.16.0] – 2026-11-03
 
 ### Vận hành

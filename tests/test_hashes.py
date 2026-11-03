@@ -93,3 +93,19 @@ def test_api_request_format(monkeypatch):
     rows = malwarebazaar._query("k", {"query": "get_siginfo", "signature": "AgentTesla", "limit": 1000})
     assert rows == [{"sha256_hash": "a" * 64}]
     assert seen == {"key": "k", "body": "query=get_siginfo&signature=AgentTesla&limit=1000"}
+
+
+def test_urlhaus_payloads_are_a_second_source(monkeypatch):
+    from archive_guard import malwarebazaar
+
+    seen = {}
+
+    def fake_urlopen(req, timeout):
+        seen["url"], seen["method"], seen["key"] = req.full_url, req.get_method(), req.get_header("Auth-key")
+        return io.BytesIO(json.dumps({"query_status": "ok", "payloads": [
+            {"sha256_hash": "d" * 64, "signature": None, "firstseen": "2026-11-01 10:00:00"}]}).encode())
+
+    monkeypatch.setattr(malwarebazaar.urllib.request, "urlopen", fake_urlopen)
+    rows = malwarebazaar._query("k", {"source": "urlhaus"})
+    assert seen == {"url": malwarebazaar.URLHAUS_PAYLOADS, "method": "GET", "key": "k"}
+    assert rows[0]["first_seen"].startswith("2026-11-01")

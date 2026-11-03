@@ -24,5 +24,6 @@ Luật signature-base không có `severity`/`category`; ArchiveGuard suy từ `s
 
 ## Cập nhật
 
+Sửa cả file `VERSION` (in trong dòng trạng thái và trường `engines.yara` của báo cáo JSON).
 Chép lại các file từ bản mới của signature-base, giữ danh sách loại trừ ở trên, kiểm tra trường `license` của các
 luật mới, rồi đo lại báo nhầm trên các bộ phần mềm sạch trước khi commit.

@@ -16,8 +16,10 @@ hay mở bất cứ thứ gì bên trong.
 - **Đi vào file nén lồng nhau** (zip trong rar trong 7z…) với một **ngân sách tài nguyên chung** chống archive bomb:
   giải nén theo kiểu streaming, dừng ngay giữa chừng khi vượt giới hạn byte, số entry, độ sâu hay thời gian.
 - **Nhiều lớp phát hiện:** tên file giả mạo, nội dung đội lốt, packer (UPX, Themida…), chuỗi hành vi
-  (keylogger, tiêm tiến trình, ransomware, đánh cắp dữ liệu…), mã băm mã độc thật từ MalwareBazaar,
-  YARA và ClamAV (tùy chọn).
+  (keylogger, tiêm tiến trình, ransomware, đánh cắp dữ liệu…), **macro Office** (giải nén mã nguồn VBA, template
+  tải từ ngoài), **shortcut `.lnk`** gọi LOLBin, **PowerShell mã hóa** (giải mã rồi dò tiếp), **cấu trúc ZIP bất
+  thường** (entry bị giấu, entry chồng nhau), mã băm từ MalwareBazaar + URLhaus (+ VirusTotal tùy chọn), YARA
+  (kèm 140 file luật signature-base) và ClamAV (tùy chọn).
 - **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, file hỏng, định dạng chưa hỗ trợ, engine lỗi hay
   vượt giới hạn đều cho kết luận `CHƯA QUÉT ĐỦ`.
 - **Parser không chạy trong process chính:** mặc định mỗi file nén được quét trong một worker có hard timeout,

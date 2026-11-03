@@ -31,6 +31,35 @@ ENV_PREFIX = "ARCHIVEGUARD_"
 # hành động một lần, và tùy chọn nội bộ
 _NOT_CONFIGURABLE = {"help", "version", "paths", "password", "auth_key", "update_hashes", "update_db", "config",
                      "_worker"}
+VT_KINDS = {"pe", "elf", "macho", "script", "lnk", "ole", "pdf", "unknown"}  # loại file đáng tra VirusTotal
+
+
+def _virustotal(report, api_key, state, paint):
+    """Tra mã băm của file thực thi/script/tài liệu trong báo cáo (dict) trên VirusTotal; ≥ VT_MIN_ENGINES engine
+    phát hiện → thêm phát hiện CRITICAL và nâng kết luận. VirusTotal lỗi/hết lượt không làm đổi kết luận."""
+    for i, f in enumerate(report.get("files", [])):
+        sha = f.get("sha256")
+        if (not sha or state["left"] <= 0 or state["off"] or (i and f.get("kind") not in VT_KINDS)
+                or any(x.get("engine") == "hash" for x in f.get("findings", []))):
+            continue
+        if sha not in state["seen"]:
+            state["left"] -= 1
+            try:
+                state["seen"][sha] = engines.virustotal_lookup(sha, api_key)
+            except (OSError, ValueError, KeyError) as e:
+                print(paint(f"  ! VirusTotal không dùng được ({e}); bỏ qua phần còn lại", "33"))
+                state["off"] = True
+                return
+        hit = state["seen"][sha]
+        if hit and hit["malicious"] >= engines.VT_MIN_ENGINES:
+            title = f"VirusTotal: {hit['malicious']}/{hit['total']} engine phát hiện là mã độc"
+            print(paint(f"  VirusTotal: {_safe(f['path'])}: {hit['malicious']}/{hit['total']} engine", "31"))
+            f["findings"].append({"rule": "HASH.VIRUSTOTAL", "severity": "CRITICAL", "category": "known_malware",
+                                  "title": title, "detail": sha, "engine": "virustotal", "confidence": "high",
+                                  "attack": ""})
+            f["verdict"], f["score"] = "malicious", 100
+            report["verdict"] = "malicious"
+            report["categories"] = sorted({*report.get("categories", []), "known_malware"})
 
 
 def _fail_on(text):
@@ -207,6 +236,11 @@ def main(argv=None) -> int:
     ap.add_argument("--fail-on", type=_fail_on, default=set(FAILABLE), metavar="KẾT_LUẬN",
                     help="kết luận nào làm lệnh thất bại, vd. malicious hoặc malicious,incomplete "
                          "(mặc định: suspicious,malicious,incomplete); kết luận khác trả mã 0. Lỗi luôn là mã 3")
+    ap.add_argument("--virustotal", action="store_true",
+                    help="tra thêm MÃ BĂM (không gửi file) của file thực thi/script/tài liệu trên VirusTotal; "
+                         "cần biến môi trường VT_API_KEY")
+    ap.add_argument("--vt-limit", type=int, default=20, metavar="N",
+                    help="số lượt tra VirusTotal tối đa mỗi lần chạy (mặc định 20; API miễn phí: 500 lượt/ngày)")
     ap.add_argument("--allowlist", action="append", default=[], type=Path, metavar="FILE",
                     help="bỏ qua phát hiện cho file đã kiểm duyệt: dòng `sha256:<mã>` hoặc `path:<glob>` "
                          "(đường dẫn trên đĩa); không bao giờ che mã độc đã biết (lặp lại được)")
@@ -269,6 +303,10 @@ def main(argv=None) -> int:
     for extra in args.yara + args.hashes + args.allowlist:
         if not extra.exists():
             ap.error(f"không tìm thấy {extra}")
+    vt_key = os.environ.get("VT_API_KEY", "")
+    if args.virustotal and not vt_key:
+        ap.error("--virustotal cần biến môi trường VT_API_KEY (khóa API miễn phí tại virustotal.com)")
+    vt_state = {"left": args.vt_limit, "seen": {}, "off": False}
     if args.update_db:
         print(f"Tải danh sách mã băm đã ký từ {malwarebazaar.DB_URL} …")
         try:
@@ -352,6 +390,8 @@ def main(argv=None) -> int:
                 report = failed_report.to_dict() | {"worker_error": error}
                 failed = failed or not timed_out  # crash/lỗi → mã 3; hết giờ → CHƯA QUÉT ĐỦ (mã 4)
                 errors += not timed_out
+            if args.virustotal:
+                _virustotal(report, vt_key, vt_state, paint)
             reports.append(report)
             slowest = max(slowest, time.monotonic() - t0)
             continue
@@ -367,6 +407,8 @@ def main(argv=None) -> int:
             continue
         reports.append(report.to_dict())
         _print_report(report, args.all, paint)
+        if args.virustotal and not args._worker:
+            _virustotal(reports[-1], vt_key, vt_state, paint)
         slowest = max(slowest, time.monotonic() - t0)
 
     if not reports and not failed and not args._worker:

@@ -106,7 +106,8 @@ def test_bundled_signature_base_rules_compile():
     pytest.importorskip("yara")
     from archive_guard.scanner import DATA_DIR, Scanner
     expected = len(list((DATA_DIR / "rules").rglob("*.yar")))
-    assert expected > 100 and Scanner(use_clamav=False).engines["yara"] == f"{expected} file luật"
+    status = Scanner(use_clamav=False).engines["yara"]
+    assert expected > 100 and status.startswith(f"{expected} file luật; signature-base ") and "Detection Rule" in status
 
 
 @pytest.mark.parametrize("blob, hit", [
@@ -164,3 +165,84 @@ def test_detection_without_yara_python(monkeypatch):
     monkeypatch.setattr(rules, "_YARA", None)  # máy không cài được yara-python: vòng lặp Python
     sample = FAKE_EXE + b"\0GetAsyncKeyState\0https://api.telegram.org/bot1/sendMessage\0\0AsyncRAT\0"
     assert {"KEYLOG.EXFIL", "BACKDOOR.KNOWN_RAT"} <= rules_of(scan(make_zip({"a.exe": sample})))
+
+
+# --- 0.17: Office, LNK, PowerShell mã hóa, cấu trúc ZIP, entropy ---
+
+def test_vba_decompression_matches_ms_ovba_spec_example():
+    """Ví dụ 3.2.2 trong đặc tả MS-OVBA (learn.microsoft.com/openspecs, ms-ovba)."""
+    from archive_guard.rules import _ovba_decompress
+    compressed = bytes.fromhex("012FB00023616161626364658266007061676869" "6A013808616B6C00206D6E6F70067102700400"
+                               "72737475761077787 97A002C".replace(" ", ""))
+    assert _ovba_decompress(compressed, 0) == b"#aaabcdefaaaaghijaaaaaklaaamnopqaaaaaaaaaaaarstuvwxyzaaa"
+
+
+@pytest.mark.parametrize("source, hit", [
+    (b'Sub Document_Open()\r\n  CreateObject("WScript.Shell").Run "cmd /c calc"\r\nEnd Sub', True),
+    (b'Sub Workbook_Open()\r\n  Sheets(1).Range("A1").Value = Date\r\nEnd Sub', False),  # macro tự chạy vô hại
+    (b'Sub TaoBaoCao()\r\n  Shell "notepad.exe"\r\nEnd Sub', False),  # gọi lệnh nhưng không tự chạy
+])
+def test_macro_autoexec_needs_both_autorun_and_execution(source, hit):
+    from helpers import make_docm
+    assert ("DOC.MACRO_AUTOEXEC_EXEC" in rules_of(scan(make_zip({"a.docm": make_docm(source)})))) == hit
+
+
+def test_external_hyperlink_is_not_a_remote_template():
+    rels = (b'<Relationships><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            b'relationships/hyperlink" Target="https://example.org" TargetMode="External"/></Relationships>')
+    docx = make_zip({"word/document.xml": b"<w/>", "word/_rels/document.xml.rels": rels})
+    assert "DOC.REMOTE_RESOURCE" not in rules_of(scan(make_zip({"a.docx": docx})))
+
+
+@pytest.mark.parametrize("target, args, rule", [
+    ("C:\\Windows\\System32\\cmd.exe", "/c start http://example.invalid", "LNK.LOLBIN"),
+    ("C:\\Program Files\\App\\app.exe", "--profile work", None),  # shortcut bình thường
+    ("C:\\Windows\\System32\\cmd.exe", "", None),  # mở cmd không tham số
+    ("C:\\Windows\\notepad.exe", " " * 200 + "x", "LNK.PADDED_ARGS"),
+])
+def test_lnk_heuristics(target, args, rule):
+    from helpers import make_lnk
+    found = rules_of(scan(make_zip({"a.lnk": make_lnk(target, args)}))) & {"LNK.LOLBIN", "LNK.PADDED_ARGS"}
+    assert found == ({rule} if rule else set())
+
+
+@pytest.mark.parametrize("text, hit", [
+    ("powershell.exe -NoP -EncodedCommand {b}", True),
+    ("pwsh -e {b}", True),
+    ("sed -e {b}", False),  # không phải PowerShell
+    ("powershell -enc QUJDREVGR0hJSktMTU5PUA==", False),  # base64 nhưng không phải văn bản UTF-16
+])
+def test_encoded_powershell_is_decoded(text, hit):
+    from helpers import ps_encoded
+
+    from archive_guard.rules import check_encoded_powershell
+    found = check_encoded_powershell(text.format(b=ps_encoded("Write-Output 'xin chao'")))
+    assert bool(found) == hit
+
+
+def test_zip_hidden_entry_and_overlap():
+    from helpers import zip_with_hidden, zip_with_overlap
+    assert "ARCHIVE.HIDDEN_ENTRY" in rules_of(scan(zip_with_hidden({"a.txt": b"a"}, {"b.exe": FAKE_EXE})))
+    assert "ARCHIVE.OVERLAP" in rules_of(scan(zip_with_overlap("a.txt", b"A" * 100)))
+
+
+def test_stored_zip_inside_zip_is_not_a_hidden_entry():
+    import io
+    import zipfile
+    inner = make_zip({"x.txt": b"x"})
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:  # local header của ZIP con nằm nguyên trong dữ liệu
+        z.writestr("inner.zip", inner)
+    assert not rules_of(scan(buf.getvalue())) & {"ARCHIVE.HIDDEN_ENTRY", "ARCHIVE.OVERLAP"}
+
+
+def test_control_characters_in_names():
+    assert "NAME.CONTROL_CHARS" in rules_of(scan(make_zip({"hoa\x07don.txt": b"x"})))
+
+
+def test_high_entropy_blob_is_only_a_capability():
+    import os
+    report = scan(make_zip({"data.bin": b"\x00\x01" + os.urandom(200_000), "logo.png": b"\x89PNG" + os.urandom(200_000)}))
+    hits = [(f.path, x) for f in report.files for x in f.findings if x.rule == "ENTROPY.ENCRYPTED_BLOB"]
+    assert [p for p, _ in hits] == ["sample.zip > data.bin"] and hits[0][1].confidence == "low"
+    assert report.verdict == "clean"  # khả năng đơn lẻ không gắn cờ

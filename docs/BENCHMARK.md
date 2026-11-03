@@ -184,6 +184,29 @@ Thời gian quét tăng khoảng 15–40% (bộ 1 + bộ kiểm tra 1: 66 → 93
 tập trung vào APT và công cụ tấn công, chỉ có luật cho vài họ trong danh sách (GuLoader, Amadey, NanoCore, Quasar,
 njRAT, LockBit, Mirai…); AgentTesla, Formbook, Lumma, XWorm… không có luật. Tác động thật cần đo theo Kết quả 2.
 
+## Vòng 5 – Office, LNK, PowerShell mã hóa, cấu trúc ZIP (2026-11-03, bản 0.17.0)
+
+**Thay đổi:** giải nén mã nguồn VBA (kiểm chứng bằng ví dụ 3.2.2 của đặc tả MS-OVBA) để tìm macro tự chạy + gọi
+lệnh; template/đối tượng Office tải từ ngoài; đọc cấu trúc `.lnk` (đích LOLBin, tham số đệm); giải mã PowerShell
+`-EncodedCommand`; ZIP có entry chồng nhau hoặc bị giấu khỏi danh mục; ký tự điều khiển trong tên; dữ liệu entropy
+gần tối đa (chỉ là *khả năng*). Nguồn mã băm thứ hai: URLhaus; VirusTotal tùy chọn.
+
+| Bộ | Trước (0.16.0) | Sau (0.17.0) |
+|---|---|---|
+| Bộ kiểm tra 3 (70 gói, khách quan): ≥ ĐÁNG NGỜ / NGUY HIỂM | 3 / 0 | **3 / 0** (không gói nào đổi kết luận) |
+| Bộ 1 + bộ kiểm tra 1 (190 gói, dùng để chỉnh) | 5 / 1 | 5 / 1 (không gói nào đổi kết luận) |
+| 28 mẫu tổng hợp (6 mẫu mới): ≥ ĐÁNG NGỜ | 25/28 | **28/28** |
+| 28 mẫu tổng hợp: NGUY HIỂM | 9/28 | 11/28 |
+
+- Các bộ dò mới khớp **0 lần** ở mức gắn cờ trên 260 gói sạch. Luật entropy (mức khả năng, không gắn cờ) khớp dữ liệu
+  mã hóa của pyarmor và icon `.icns` ở bộ chỉnh (đã loại `.icns`), và một font PostScript `.pfb` ở bộ kiểm tra 3
+  (không chỉnh theo bộ kiểm tra).
+- 3 mẫu tổng hợp trước đây bị bỏ sót hoàn toàn: template từ xa, entry ZIP bị giấu, entry chồng nhau. Mẫu tổng hợp do
+  chính người viết luật tạo ra: chỉ chứng minh luật hoạt động như thiết kế, **không** phải recall trên mã độc thật.
+- Không làm, vì khó tránh báo nhầm: "nhiều entry tên ngẫu nhiên" (bộ nhớ đệm, object Git, file băm tên trong gói
+  phần mềm), "mã hóa tên file lạ" (file ZIP tạo trên Windows tiếng Việt/Trung/Nhật thường không bật cờ UTF-8), phát hiện
+  obfuscation JavaScript chung (JS đã minify trong gói npm).
+
 ## Kết quả 2 – Phát hiện mã độc thật (recall): **CHƯA ĐO**
 
 Đây là con số quan trọng nhất và hiện **chưa có**. Lý do: môi trường phát triển không tải được mẫu mã độc,

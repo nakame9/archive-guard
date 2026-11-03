@@ -23,6 +23,12 @@ Cách vượt sandbox của worker (đọc/ghi file ngoài phạm vi cho phép, 
 lỗ hổng, hãy báo riêng. Lớp nào đang bật trên máy nào: [docs/USAGE.md](docs/USAGE.md#cô-lập-và-sandbox-mặc-định).
 Windows chưa có sandbox file/mạng: khi xử lý dữ liệu không tin cậy trên Windows, hãy chạy trong Docker hoặc WSL.
 
+## Dữ liệu gửi ra ngoài
+
+Mặc định ArchiveGuard **không gửi gì** ra mạng khi quét. `--virustotal` (tùy chọn) gửi **mã băm SHA-256** của file
+thực thi/script/tài liệu tới VirusTotal – không gửi nội dung file; mã băm của một tài liệu nội bộ vẫn cho VirusTotal
+biết tài liệu đó tồn tại, nên đừng bật với dữ liệu nhạy cảm. `--update-hashes`/`--update-db` chỉ tải về.
+
 ## Cấu hình và allowlist
 
 - File cấu hình chỉ được nạp từ `--config`/`ARCHIVEGUARD_CONFIG`, không tự tìm trong thư mục hiện tại; biến môi

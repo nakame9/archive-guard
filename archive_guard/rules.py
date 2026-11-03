@@ -94,6 +94,9 @@ def check_name(name: str, in_archive: bool, link: str = "") -> list[Finding]:
     if link and _escapes(link):
         out.append(Finding("NAME.PATH_TRAVERSAL", HIGH, "archive_abuse",
                            "Symlink trỏ ra ngoài thư mục giải nén", f"{name} -> {link}"))
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        out.append(Finding("NAME.CONTROL_CHARS", MEDIUM, "evasion",
+                           "Tên file chứa ký tự điều khiển – mỗi công cụ hiển thị một kiểu", repr(name)))
     if any(c in base for c in BIDI_CHARS):
         out.append(Finding("NAME.BIDI", HIGH, "trojan",
                            "Tên file chứa ký tự đảo chiều Unicode để giả mạo đuôi file", repr(base)))
@@ -114,6 +117,8 @@ def check_name(name: str, in_archive: bool, link: str = "") -> list[Finding]:
     if base.lower() == "autorun.inf":
         out.append(Finding("NAME.AUTORUN_INF", MEDIUM, "worm",
                            "autorun.inf – cơ chế tự chạy mà worm USB hay dùng"))
+    if "/macrosheets/" in "/" + name.lower().replace("\\", "/"):
+        out.append(Finding("DOC.XLM_MACRO", MEDIUM, "downloader", "Bảng tính chứa macro Excel 4.0 (XLM)", name))
     if base.lower() == "vbaproject.bin":
         out.append(Finding("DOC.MACRO", MEDIUM, "downloader", "Tài liệu Office chứa macro VBA"))
     return out
@@ -267,6 +272,11 @@ RULE_META = {
     "NAME.PADDING": ("high", "T1036"), "NAME.CONTENT_MISMATCH": ("high", "T1036.008"),
     "HASH.KNOWN_BAD": ("high", ""), "CLAMAV": ("high", ""),
     "ARCHIVE.ENCRYPTED_EXEC": ("medium", "T1027.013"),
+    "DOC.MACRO_AUTOEXEC_EXEC": ("medium", "T1059.005"), "DOC.REMOTE_RESOURCE": ("high", "T1221"),
+    "DOC.XLM_MACRO": ("medium", "T1059"), "LNK.LOLBIN": ("medium", "T1218"),
+    "LNK.PADDED_ARGS": ("medium", "T1027"), "EXEC.PS_ENCODED": ("medium", "T1027.010"),
+    "ENTROPY.ENCRYPTED_BLOB": ("low", "T1027.013"), "ARCHIVE.OVERLAP": ("high", "T1499"),
+    "ARCHIVE.HIDDEN_ENTRY": ("medium", "T1027"), "NAME.CONTROL_CHARS": ("medium", "T1036"),
 }
 _META_DEFAULT = ("medium", "")  # ARCHIVE.*, YARA.* (YARA tự đặt theo meta của luật)
 # Tên họ mã độc chỉ tính khi đứng ĐẦU một từ: trình biên dịch Rust ghép chuỗi sát nhau nên
@@ -364,13 +374,219 @@ def check_content(data: bytes, kind: str, name: str) -> list[Finding]:
     elif kind in ("elf", "macho") and b"UPX!" in data[:4096]:
         out.append(Finding("PACKER.NAME", LOW, "evasion", "File thực thi bị nén bằng UPX"))
     if kind in INDICATOR_KINDS:
-        found = _find_strings(data)
-        for rule, sev, cat, title, groups, min_groups, min_hits in _INDICATORS:
-            hits = [found & g for g in groups]
-            matched = sorted(set().union(*hits))
-            if sum(1 for h in hits if h) >= min_groups and len(matched) >= min_hits:
-                out.append(Finding(rule, sev, cat, title, "khớp: " + ", ".join(matched[:6])))
+        out += _indicator_findings(data)
+    if kind == "ole":
+        out += check_vba(data)
+    elif kind == "lnk":
+        out += check_lnk(data)
+    elif kind in ("script", "text"):
+        out += check_encoded_powershell(data.decode("latin-1"))
+        if ext == "rels":
+            out += check_rels(data)
+    elif kind == "unknown":
+        out += check_blob_entropy(data)
     return out
+
+
+def _indicator_findings(data: bytes, where: str = "") -> list[Finding]:
+    found = _find_strings(data)
+    out = []
+    for rule, sev, cat, title, groups, min_groups, min_hits in _INDICATORS:
+        hits = [found & g for g in groups]
+        matched = sorted(set().union(*hits))
+        if sum(1 for h in hits if h) >= min_groups and len(matched) >= min_hits:
+            out.append(Finding(rule, sev, cat, title, where + "khớp: " + ", ".join(matched[:6])))
+    return out
+
+
+# --- Macro VBA: mã nguồn nằm trong vbaProject.bin dưới dạng nén MS-OVBA, dò chuỗi thô không thấy được ------------
+
+def _ovba_decompress(data: bytes, start: int, limit: int = 1 << 20) -> bytes:
+    """Giải nén MS-OVBA (MS-OVBA 2.4.1) từ data[start]; dừng ở lỗi đầu tiên, trả phần đã giải nén được."""
+    if data[start:start + 1] != b"\x01":
+        return b""
+    out, pos = bytearray(), start + 1
+    while pos + 2 <= len(data) and len(out) < limit:
+        header = int.from_bytes(data[pos:pos + 2], "little")
+        if (header >> 12) & 0b111 != 0b011:  # chữ ký của mỗi khúc
+            break
+        chunk_end, pos, base = min(pos + (header & 0x0FFF) + 3, len(data)), pos + 2, len(out)
+        if not header & 0x8000:  # khúc không nén: 4096 byte nguyên văn
+            out += data[pos:pos + 4096]
+            pos = chunk_end
+            continue
+        while pos < chunk_end:
+            flags, pos = data[pos], pos + 1
+            for bit in range(8):
+                if pos >= chunk_end:
+                    break
+                if not flags >> bit & 1:
+                    out.append(data[pos])
+                    pos += 1
+                    continue
+                token, pos = int.from_bytes(data[pos:pos + 2], "little"), pos + 2
+                done = len(out) - base
+                if done == 0:
+                    return bytes(out)  # dữ liệu hỏng: token sao chép ở đầu khúc
+                bits = max((done - 1).bit_length(), 4)
+                offset, length = (token >> (16 - bits)) + 1, (token & (0xFFFF >> bits)) + 3
+                if offset > done:
+                    return bytes(out)
+                for _ in range(length):
+                    out.append(out[-offset])
+    return bytes(out)
+
+
+def vba_source(data: bytes, limit: int = 4 << 20) -> bytes:
+    """Mã nguồn VBA trong file OLE: tìm các module nén (bắt đầu bằng "Attribute VB_Name") và giải nén."""
+    out, pos = bytearray(), data.find(b"\x00Attribut")
+    while pos >= 3 and len(out) < limit:
+        out += _ovba_decompress(data, pos - 3, limit - len(out)) + b"\n"
+        pos = data.find(b"\x00Attribut", pos + 1)
+    return bytes(out)
+
+
+_VBA_AUTOEXEC = re.compile(rb"(?i)\b(auto_?open|auto_?close|autoexec|document_open|document_close|documentopen|"
+                           rb"workbook_open|workbook_beforeclose|workbook_activate)\b")
+_VBA_EXEC = re.compile(rb"(?i)(\bshell\s*\(|wscript\.shell|shell\.application|urldownloadtofile|xmlhttp|"
+                       rb"winhttp|adodb\.stream|powershell|cmd(\.exe)?\s+/c|mshta|rundll32|regsvr32|callbyname|"
+                       rb"lib\s+\"(kernel32|urlmon|ntdll)|virtualalloc|rtlmovememory|createthread|executeexcel4macro)")
+
+
+def check_vba(data: bytes) -> list[Finding]:
+    source = vba_source(data)
+    if not source:
+        return []
+    out = _indicator_findings(source, "trong mã VBA đã giải nén – ")
+    auto, run = _VBA_AUTOEXEC.search(source), _VBA_EXEC.findall(source)
+    if auto and run:
+        calls = sorted({m[0].decode("latin-1").strip().lower() for m in run})
+        out.append(Finding("DOC.MACRO_AUTOEXEC_EXEC", HIGH, "downloader",
+                           "Macro tự chạy khi mở tài liệu VÀ gọi lệnh/tải file",
+                           f"{auto.group(0).decode('latin-1')} + {', '.join(calls[:5])}"))
+    return out
+
+
+# --- Tài nguyên ngoài trong Office Open XML (remote template, Follina…) ------------------------------------------
+
+_REL = re.compile(rb"<Relationship\b[^>]*>", re.I)
+_REL_RISKY_TYPE = re.compile(rb"Type=\"[^\"]*/(attachedTemplate|oleObject|frame|subDocument)\"", re.I)
+_REL_EXTERNAL_TARGET = re.compile(rb"Target=\"\s*((https?|ftp|file|ms-msdt|mhtml|search-ms):|\\\\)[^\"]*\"", re.I)
+
+
+def check_rels(data: bytes) -> list[Finding]:
+    """Tài liệu tải template/đối tượng từ nơi khác khi mở (T1221). Liên kết thường (hyperlink) không tính."""
+    hits = [m.group(0) for m in _REL.finditer(data) if b"External" in m.group(0)
+            and _REL_RISKY_TYPE.search(m.group(0)) and _REL_EXTERNAL_TARGET.search(m.group(0))]
+    if not hits:
+        return []
+    target = _REL_EXTERNAL_TARGET.search(hits[0]).group(0).decode("utf-8", "replace")
+    return [Finding("DOC.REMOTE_RESOURCE", HIGH, "downloader",
+                    "Tài liệu tự tải template/đối tượng từ bên ngoài khi mở", target[:200])]
+
+
+# --- PowerShell -EncodedCommand: giải mã base64 rồi dò tiếp ----------------------------------------------------
+
+_PS_ENCODED = re.compile(r"(?i)(?:^|[\s\"'])[-/](?:ec|" + "|".join("encodedcommand"[:i] for i in range(14, 0, -1))
+                         + r")\s+['\"]?([A-Za-z0-9+/]{16,}={0,2})")
+
+
+def _decode_ps(arg: str) -> str:
+    import base64
+    import binascii
+    try:
+        text = base64.b64decode(arg + "=" * (-len(arg) % 4)).decode("utf-16-le")
+    except (binascii.Error, UnicodeDecodeError):
+        return ""
+    printable = sum(" " <= c <= "~" or c in "\r\n\t" for c in text)  # lệnh PowerShell thật gần như toàn ASCII
+    return text if len(text) >= 8 and printable >= 0.9 * len(text) else ""
+
+
+def check_encoded_powershell(text: str, where: str = "") -> list[Finding]:
+    if "powershell" not in text.lower() and "pwsh" not in text.lower():
+        return []
+    decoded = [d for d in (_decode_ps(m.group(1)) for m in _PS_ENCODED.finditer(text[:4 << 20])) if d]
+    if not decoded:
+        return []
+    joined = "\n".join(decoded)
+    return [Finding("EXEC.PS_ENCODED", MEDIUM, "evasion", "Lệnh PowerShell được mã hóa base64 (-EncodedCommand)",
+                    where + repr(joined[:160]))] + _indicator_findings(
+        joined.encode("utf-8"), where + "trong lệnh -EncodedCommand đã giải mã – ")
+
+
+# --- Shortcut .lnk -------------------------------------------------------------------------------------------
+
+LOLBINS = {"cmd.exe", "powershell.exe", "pwsh.exe", "mshta.exe", "wscript.exe", "cscript.exe", "rundll32.exe",
+           "regsvr32.exe", "certutil.exe", "bitsadmin.exe", "msiexec.exe", "conhost.exe", "forfiles.exe",
+           "curl.exe", "schtasks.exe", "wmic.exe", "hh.exe", "cmstp.exe", "msbuild.exe", "installutil.exe",
+           "explorer.exe", "finger.exe", "ftp.exe", "regasm.exe", "regsvcs.exe", "odbcconf.exe", "pcalua.exe"}
+
+
+def parse_lnk(data: bytes) -> dict:
+    """Shell Link (MS-SHLLINK): đường dẫn đích (LinkInfo + RELATIVE_PATH) và các chuỗi StringData."""
+    u16 = lambda o: int.from_bytes(data[o:o + 2], "little")  # noqa: E731
+    u32 = lambda o: int.from_bytes(data[o:o + 4], "little")  # noqa: E731
+    if len(data) < 76 or u32(0) != 0x4C:
+        return {}
+    flags, pos, out = u32(20), 76, {}
+    if flags & 0x01:  # HasLinkTargetIDList
+        pos += 2 + u16(pos)
+    if flags & 0x02:  # HasLinkInfo: LocalBasePath (ANSI, và Unicode nếu header ≥ 0x24)
+        size, header, info_flags = u32(pos), u32(pos + 4), u32(pos + 8)
+        if info_flags & 1:
+            if header >= 0x24 and u32(pos + 28):
+                start = pos + u32(pos + 28)
+                end = next((i for i in range(start, min(len(data) - 1, pos + size), 2) if data[i:i + 2] == b"\0\0"), start)
+                out["base_path"] = data[start:end].decode("utf-16-le", "replace")
+            else:
+                start = pos + u32(pos + 16)
+                out["base_path"] = data[start:data.find(b"\0", start)].decode("cp1252", "replace")
+        pos += size
+    unicode = flags & 0x80
+    for bit, key in ((0x04, "name"), (0x08, "relative_path"), (0x10, "working_dir"), (0x20, "arguments"),
+                     (0x40, "icon")):
+        if flags & bit and pos + 2 <= len(data):
+            n = u16(pos) * (2 if unicode else 1)
+            out[key] = data[pos + 2:pos + 2 + n].decode("utf-16-le" if unicode else "cp1252", "replace")
+            pos += 2 + n
+    return out
+
+
+def check_lnk(data: bytes) -> list[Finding]:
+    lnk = parse_lnk(data)
+    if not lnk:
+        return []
+    args, out = lnk.get("arguments", ""), []
+    targets = [lnk.get("base_path", ""), lnk.get("relative_path", "")]
+    lolbin = next((basename(t).lower() for t in targets if basename(t).lower() in LOLBINS), None)
+    if lolbin and args.strip():
+        out.append(Finding("LNK.LOLBIN", HIGH, "downloader", f"Shortcut chạy {lolbin} kèm tham số",
+                           repr(args.strip()[:200])))
+    if len(args) - len(args.lstrip()) >= 64 or len(args) > 1024:
+        out.append(Finding("LNK.PADDED_ARGS", MEDIUM, "evasion",
+                           "Tham số shortcut bị đệm khoảng trắng/quá dài để giấu khỏi hộp thoại Properties",
+                           f"{len(args)} ký tự"))
+    return out + check_encoded_powershell(" ".join([*targets, args]), "trong shortcut – ")
+
+
+# --- Dữ liệu mã hóa/nén lạ (không phải định dạng nén/media đã biết) -------------------------------------------
+
+_KNOWN_DENSE = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"RIFF", b"wOFF", b"wOF2", b"OggS", b"ID3", b"\xff\xfb",
+                b"fLaC", b"\x1aE\xdf\xa3", b"\x28\xb5\x2f\xfd", b"\x04\x22\x4d\x18", b"BZh", b"\x00\x00\x01\x00",
+                b"PAR1", b"%PDF", b"icns", b"MSCF", b"ITSF", b"\x93NUMPY", b"\xca\xfe\xba\xbe", b"OTTO", b"\x00\x01\x00\x00")
+
+
+def check_blob_entropy(data: bytes) -> list[Finding]:
+    """File nhị phân không rõ định dạng, gần như ngẫu nhiên hoàn toàn: payload đã mã hóa hoặc nén lạ.
+    Chỉ là KHẢ NĂNG (dữ liệu nén/mã hóa hợp pháp cũng vậy) – một mình không gắn cờ."""
+    if len(data) < 64 << 10 or data.startswith(_KNOWN_DENSE) or data[4:8] in (b"ftyp", b"moov"):
+        return []
+    sample = data[:1 << 20] + data[-(1 << 20):] if len(data) > 2 << 20 else data
+    e = entropy(sample)
+    if e < 7.95:
+        return []
+    return [Finding("ENTROPY.ENCRYPTED_BLOB", LOW, "evasion",
+                    "Dữ liệu không rõ định dạng, entropy gần tối đa – có thể là payload đã mã hóa", f"entropy {e:.3f}")]
 
 
 # --- Packer (file PE bị nén/mã hóa để giấu mã) ----------------------------------------------

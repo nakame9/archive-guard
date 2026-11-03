@@ -232,6 +232,54 @@ def _zip(src, name, kind, limit, passwords, budget):
             yield m
 
 
+_ZIP_METHODS = {0, 1, 6, 8, 9, 12, 14, 93, 95, 98, 99}
+
+
+def zip_anomalies(src) -> tuple[list, list]:
+    """Cấu trúc ZIP bất thường: (các cặp entry dùng chung vùng dữ liệu, tên các file có local header nhưng KHÔNG có
+    trong danh mục). Chỉ gọi SAU khi đã duyệt file qua ngân sách (số entry đã được kiểm tra)."""
+    import bisect
+    import mmap
+
+    with _open(src) as f, zipfile.ZipFile(f) as zf:
+        buf = src if isinstance(src, bytes) else mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        try:
+            ranges = []
+            for info in zf.infolist():
+                off = info.header_offset
+                if buf[off:off + 4] == b"PK\x03\x04":
+                    name_len, extra_len = struct.unpack_from("<HH", buf, off + 26)
+                    ranges.append((off, off + 30 + name_len + extra_len + info.compress_size, info.filename))
+            ranges.sort()
+            overlaps = [(a[2], b[2]) for a, b in zip(ranges, ranges[1:]) if b[0] < a[1]]
+            starts, ends, hidden = [r[0] for r in ranges], [r[1] for r in ranges], []
+            pos = buf.find(b"PK\x03\x04")
+            while pos != -1 and len(hidden) < 20:
+                i = bisect.bisect_right(starts, pos) - 1
+                if i < 0 or (starts[i] != pos and ends[i] <= pos):  # không thuộc vùng của entry nào (kể cả ZIP lồng)
+                    name = _local_header_name(buf, pos)
+                    if name is not None:
+                        hidden.append(name)
+                pos = buf.find(b"PK\x03\x04", pos + 1)
+            return overlaps, hidden
+        finally:
+            if not isinstance(src, bytes):
+                buf.close()
+
+
+def _local_header_name(buf, pos):
+    """Tên file nếu tại pos là một local header hợp lệ (lọc chuỗi PK\\x03\\x04 ngẫu nhiên trong dữ liệu nén)."""
+    if pos + 30 > len(buf):
+        return None
+    version, _flags, method = struct.unpack_from("<HHH", buf, pos + 4)
+    name_len, extra_len = struct.unpack_from("<HH", buf, pos + 26)
+    raw = buf[pos + 30:pos + 30 + name_len]
+    if version > 100 or method not in _ZIP_METHODS or not 0 < name_len <= 1024 or len(raw) < name_len \
+            or b"\x00" in raw or pos + 30 + name_len + extra_len > len(buf):
+        return None
+    return raw.decode("utf-8", "replace")
+
+
 def _tar(src, name, kind, limit, passwords, budget):
     with _open(src) as f:
         try:

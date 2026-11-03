@@ -68,6 +68,35 @@ def _score_severity(score):
     return CRITICAL if score >= 80 else HIGH if score >= 60 else MEDIUM
 
 
+VT_URL = "https://www.virustotal.com/api/v3/files/"
+VT_MIN_ENGINES = 5  # ít hơn thường là báo nhầm của một vài engine
+
+
+def virustotal_lookup(sha256: str, api_key: str, opener=None) -> dict | None:
+    """Tra MÃ BĂM trên VirusTotal (không gửi file). None = VirusTotal chưa biết file này.
+
+    API miễn phí giới hạn 4 lượt/phút: gặp HTTP 429 thì chờ 60 giây rồi thử lại một lần.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+    opener = opener or urllib.request.urlopen
+    req = urllib.request.Request(VT_URL + sha256, headers={"x-apikey": api_key, "User-Agent": "archive-guard"})
+    for attempt in range(2):
+        try:
+            with opener(req, timeout=60) as r:
+                stats = json.load(r)["data"]["attributes"]["last_analysis_stats"]
+            return {"malicious": int(stats.get("malicious", 0)), "total": sum(int(v) for v in stats.values())}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if e.code == 429 and attempt == 0:
+                time.sleep(60)
+                continue
+            raise
+    return None
+
+
 def find_clamav() -> str | None:
     return shutil.which("clamdscan") or shutil.which("clamscan")
 
