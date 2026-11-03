@@ -209,7 +209,7 @@ class Scanner:
             "heuristic": "bật",
             "hash": f"{len(self.hashes)} mã băm ({hash_status})",
             "yara": yara_status + "".join(f"; {v.read_text(encoding='utf-8').strip()}"  # nguồn + phiên bản bộ luật đi kèm
-                                          for v in sorted((DATA_DIR / "rules").glob("*/VERSION")) if use_yara),
+                                          for v in sorted((DATA_DIR / "rules").glob("*/VERSION")) if self.yara),
             "clamav": "bật" if self.use_clamav else ("tắt" if not use_clamav else "chưa cài"),
         }
         self.rules_components = rules_fingerprint(self.hashes, yara_files)

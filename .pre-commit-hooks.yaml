@@ -1,0 +1,10 @@
+# Dùng ArchiveGuard làm hook pre-commit: chặn commit thêm file nén nguy hiểm hoặc chưa kiểm tra được.
+# Cách dùng: docs/INTEGRATION.md#pre-commit
+- id: archiveguard
+  name: ArchiveGuard (quét file nén)
+  description: Quét file nén được commit tìm dấu hiệu mã độc
+  entry: archiveguard
+  language: python
+  args: [--no-clamav, --fail-on, "malicious,incomplete"]
+  files: '(?i)\.(zip|rar|7z|tar|tgz|gz|bz2|xz|jar|war|whl|apk|nupkg|vsix|docx|docm|xlsx|xlsm|pptx|pptm)$'
+  require_serial: true

@@ -14,7 +14,8 @@ pytest -q          # chạy toàn bộ test (~15 giây)
 ruff check .       # lint: chỉ bắt lỗi thật (tên chưa định nghĩa, import thừa…)
 ```
 
-CI chạy test trên Linux, Windows và macOS với Python 3.10 và 3.13, cộng lint. PR chỉ được gộp khi CI xanh.
+CI chạy test trên Linux (x86_64, arm64), Windows và macOS với Python 3.10 và 3.13, cộng lint, pip-audit, Docker.
+PR chỉ được gộp khi CI xanh.
 
 ## Quy tắc
 
@@ -58,7 +59,59 @@ CI chạy test trên Linux, Windows và macOS với Python 3.10 và 3.13, cộng
 - GitHub → Settings → Environments → tạo môi trường `pypi` (nên bật *Required reviewers* để mỗi lần đăng PyPI phải
   có người duyệt).
 
+## Viết luật phát hiện mới
+
+Đọc [docs/RULES.md](docs/RULES.md) trước (cách chấm điểm, `RULE_META`, luật ngữ cảnh). Tóm tắt:
+
+1. **Bắt đầu từ dữ liệu:** một issue "Bỏ sót" (mẫu thật, có SHA-256) hoặc một kỹ thuật MITRE ATT&CK cụ thể. Ghi
+   mã kỹ thuật vào `RULE_META`.
+2. **Chọn đúng chỗ:** chuỗi/API → `_INDICATORS` trong `rules.py`; cấu trúc định dạng (LNK, OLE, ZIP…) → hàm
+   `check_*` riêng; chữ ký một họ mã độc cụ thể → file YARA trong `archive_guard/data/rules/`.
+3. **Khả năng hay hành vi?** API mà phần mềm hợp pháp cũng dùng là *khả năng* (`confidence: low`, một mình không gắn
+   cờ). Muốn kết luận *hành vi*, đòi thêm bằng chứng bổ trợ trong cùng file (luật ngữ cảnh), đừng nâng mức độ của
+   một chuỗi đơn lẻ.
+4. **Test hai chiều** trong `tests/test_detection.py`: mẫu xấu bị bắt **và** mẫu sạch giống nhất có thể không bị bắt
+   (vd. macro tự chạy nhưng vô hại; shortcut bình thường). Mẫu tạo trong bộ nhớ, nội dung vô hại, địa chỉ `.invalid`.
+5. Thêm một mẫu vào `tests/positives.py` nếu luật bắt một kiểu tấn công mới: `test_confidence.py` giữ cho các luật
+   sau này không làm tụt kết luận của nó.
+
+## Đo báo nhầm trước khi merge
+
+Mọi PR đổi luật (kể cả file YARA) phải đo trên **các bộ phần mềm sạch đã công bố**, trước và sau thay đổi:
+
+```bash
+# tải lại đúng các gói (SHA-256 được kiểm tra từng file; ~1,4 GB cho cả ba bộ)
+python benchmark/tai_bo_sach.py benchmark/benign-corpus.txt     sach/bo1
+python benchmark/tai_bo_sach.py benchmark/holdout-corpus-1.txt  sach/kiemtra1
+python benchmark/tai_bo_sach.py benchmark/holdout-corpus-2.txt  sach/kiemtra2
+
+git stash && python -m archive_guard.benchmark --benign sach/bo1 --no-clamav --out truoc && git stash pop
+python -m archive_guard.benchmark --benign sach/bo1 --no-clamav --out sau
+```
+
+Lặp lại cho `kiemtra1`, `kiemtra2`, và cho bộ mẫu tổng hợp: `python benchmark/dung_mau_tong_hop.py tonghop/` rồi
+`--malicious tonghop/`. Dán bảng
+"theo nhóm" và danh sách ca báo nhầm của `truoc.md`/`sau.md` vào PR.
+
+## Quy trình review luật
+
+Người review kiểm tra:
+
+| Câu hỏi | Chặn merge nếu |
+|---|---|
+| Báo nhầm trên 3 bộ sạch | Có gói nào **mới** bị gắn ĐÁNG NGỜ/NGUY HIỂM mà PR không giải thích và chấp nhận rõ ràng |
+| NGUY HIỂM | Có thêm bất kỳ gói sạch nào bị NGUY HIỂM |
+| Kỷ luật dữ liệu | Luật được chỉnh để hết báo nhầm trên **bộ kiểm tra 3** (`holdout-corpus-2.txt`) – bộ đó chỉ để đo; chỉnh trên bộ 1 và bộ kiểm tra 1 |
+| Mẫu tổng hợp | Mẫu nào trong `tests/positives.py` bị tụt kết luận |
+| Một chuỗi đơn lẻ quyết định mức HIGH | Không có bằng chứng bổ trợ hoặc lý do rõ ràng |
+| Test hai chiều, `RULE_META` (confidence + ATT&CK), CHANGELOG | Thiếu |
+| Luật YARA lấy từ nơi khác | Giấy phép không cho phân phối lại trong repo MIT (GPL, CC BY-NC…), hoặc thiếu nguồn/tác giả |
+
+Khi bộ kiểm tra 3 đã bị dùng để quyết định quá nhiều lần, hãy dựng bộ kiểm tra mới (gói chưa có trong các manifest)
+và đo nó bằng luật cũ trước – xem docs/BENCHMARK.md.
+
 ## Báo nhầm / bỏ sót
 
-Mở issue bằng mẫu **"Báo nhầm / bỏ sót"**: ghi mã SHA-256 của file, kết luận nhận được, kết luận mong đợi, và phần
-báo cáo JSON liên quan. Với phần mềm sạch, kèm tên gói và phiên bản để người khác tải lại được.
+Dùng mẫu issue **"Báo nhầm"** hoặc **"Bỏ sót"**: SHA-256, nguồn công khai (gói + phiên bản, hoặc trang
+MalwareBazaar/VirusTotal của mẫu), kết luận nhận được, phát hiện liên quan. Không đính kèm mã độc. Báo nhầm đã xác
+nhận được thêm vào bộ phần mềm sạch ở lần đo sau; bỏ sót được dùng để viết luật và đo recall.

@@ -2,26 +2,51 @@
 
 ## Báo lỗ hổng
 
-Nếu bạn tìm thấy cách khiến ArchiveGuard:
+Hãy **báo riêng**, đừng mở issue công khai:
+[Security → Report a vulnerability](https://github.com/nakame9/archive-guard/security/advisories/new)
+(GitHub Private Vulnerability Reporting: chỉ người giữ repo đọc được, nội dung được GitHub bảo vệ khi truyền và lưu).
 
-- báo **SẠCH** cho một file mà nó chưa kiểm tra hết, hoặc bỏ qua một lớp phát hiện;
-- ghi file ra ngoài thư mục tạm, chạy mã từ file đang quét, hoặc treo/ăn hết RAM bất chấp các giới hạn;
-- làm lộ mật khẩu hay nội dung file đang quét,
+Kèm theo: phiên bản (`archiveguard -V`), hệ điều hành, kernel (`uname -r`) nếu liên quan sandbox, cách tái hiện.
+Nếu cần một file để tái hiện, hãy mô tả cách **tạo** file đó hoặc gửi mã SHA-256, **không gửi mã độc thật**.
 
-hãy **báo riêng**, đừng mở issue công khai:
-[Security → Report a vulnerability](https://github.com/nakame9/archive-guard/security/advisories/new).
-
-Kèm theo: phiên bản (`archiveguard -V`), hệ điều hành, cách tái hiện. Nếu cần một file để tái hiện, hãy mô tả cách
-**tạo** file đó hoặc gửi mã SHA-256, **không gửi mã độc thật**.
+**PGP:** dự án hiện không dùng khóa PGP: kênh báo riêng của GitHub ở trên đã đủ để giữ bí mật nội dung. Nếu bạn bắt
+buộc phải dùng PGP, hãy mở một báo cáo riêng ngắn để xin khóa; khóa (nếu có) sẽ được công bố tại đây kèm dấu vân tay.
 
 ## Phạm vi
 
-ArchiveGuard là công cụ hỗ trợ phát hiện, không phải phần mềm diệt virus. Mã độc **không bị phát hiện** là giới hạn
-đã biết của heuristic: hãy báo qua issue "Báo nhầm / bỏ sót", không cần báo riêng.
+**Là lỗ hổng** (báo riêng):
 
-Cách vượt sandbox của worker (đọc/ghi file ngoài phạm vi cho phép, mở kết nối mạng, thoát khỏi giới hạn CPU/RAM) **là**
-lỗ hổng, hãy báo riêng. Lớp nào đang bật trên máy nào: [docs/USAGE.md](docs/USAGE.md#cô-lập-và-sandbox-mặc-định).
-Windows chưa có sandbox file/mạng: khi xử lý dữ liệu không tin cậy trên Windows, hãy chạy trong Docker hoặc WSL.
+| Nhóm | Ví dụ |
+|---|---|
+| Kết luận sai do lỗi xử lý | File chưa được kiểm tra hết mà vẫn ra SẠCH; một lớp phát hiện bị bỏ qua âm thầm; lỗi biến thành SẠCH |
+| Parser và cô lập | Chạy mã từ file đang quét; worker crash/treo làm process chính treo; vượt hard timeout, giới hạn CPU/RAM, ngân sách giải nén |
+| Sandbox của worker | Đọc/ghi file ngoài phạm vi cho phép, mở kết nối mạng hay Unix socket, ptrace, thoát khỏi Landlock/seccomp/sandbox-exec ở nơi trạng thái báo là đã bật |
+| Báo cáo | Trạng thái sandbox báo cao hơn thực tế; chèn ký tự điều khiển terminal qua tên file; JSON bị làm giả từ worker mà process chính không phát hiện được cấu trúc sai |
+| Chuỗi cung ứng | Cài được gói/dependency/action/image không khớp hash, digest hay chữ ký đã pin; `--update-db` chấp nhận file không do workflow `update-hashes.yml` ký |
+| Bí mật | Lộ mật khẩu file nén, Auth-Key, `VT_API_KEY`, hay nội dung file ra ngoài; allowlist che được "mã độc đã biết" |
+
+**Không phải lỗ hổng** (mở issue công khai):
+
+- Mã độc **không bị phát hiện** hoặc file sạch bị gắn cờ: giới hạn đã biết của heuristic. Dùng mẫu issue
+  **"Bỏ sót"** hoặc **"Báo nhầm"**: chúng là dữ liệu để chỉnh luật và đo recall.
+- Thiếu sandbox ở nơi tài liệu đã ghi là không có (Windows; seccomp trên ARM; Landlock trên kernel cũ) và trạng thái
+  báo đúng là không có. Lớp nào đang bật trên máy nào: [docs/USAGE.md](docs/USAGE.md#cô-lập-và-sandbox-mặc-định).
+- Kết luận sai khi **worker đã bị khai thác** (xem mục bên dưới) – trừ khi việc khai thác đó là lỗ hổng mới.
+- Lỗ hổng của `unrar`, 7-Zip, ClamAV, Python: báo cho dự án đó; báo cả ở đây nếu ArchiveGuard làm chúng dễ bị khai
+  thác hơn.
+
+## Thời gian phản hồi
+
+Dự án do một người giữ, các mốc dưới là cam kết theo khả năng, tính theo ngày làm việc:
+
+| Bước | Mốc |
+|---|---|
+| Xác nhận đã nhận báo cáo | 3 ngày |
+| Đánh giá mức độ, báo lại hướng xử lý | 10 ngày |
+| Bản vá cho lỗi nghiêm trọng (chạy mã, thoát sandbox, SẠCH sai có hệ thống) | mục tiêu 30 ngày |
+| Công bố | sau khi có bản vá, qua GitHub Security Advisory (kèm CVE nếu phù hợp), ghi công người báo nếu bạn đồng ý |
+
+Nếu quá các mốc trên mà chưa có phản hồi, bạn có thể nhắc lại trong cùng báo cáo.
 
 ## Dữ liệu gửi ra ngoài
 

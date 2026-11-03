@@ -248,9 +248,15 @@ mã độc bị **obfuscate, pack, mã hóa hoặc chưa có chữ ký** đều 
 4. **Chỉnh luật** chỉ dựa trên `ketqua_chinh`; rồi đo lại `kiemtra` đúng một lần với luật mới. Lặp lại thì cần
    một lượt mẫu mới hơn (chạy lại bước 1 vài tuần sau), vì `kiemtra` đã bị nhìn thấy.
 
-## Tái hiện kết quả 1
+## Tái hiện các phép đo báo nhầm
 
-Mọi gói trong `benchmark/benign-corpus.txt` đều tải được công khai:
-`pip download --no-deps --only-binary=:all: --platform win_amd64 --python-version 3.12 <tên>==<phiên bản>`
-cho file `.whl`, và `npm pack <tên>@<phiên bản>` cho file `.tgz`. Sau đó đối chiếu SHA-256, đặt vào
-`phan_mem_sach/common/` hoặc `phan_mem_sach/dual-use/` như trong danh sách, rồi chạy công cụ với `--benign`.
+Ba manifest trong `benchmark/` ghi nhóm, tên file, SHA-256 và nguồn (`pypi:tên==phiên_bản` hoặc
+`npm:tên@phiên_bản`) của từng gói. Tải lại đúng từng byte (mã băm được kiểm tra) rồi chạy công cụ:
+
+```bash
+python benchmark/tai_bo_sach.py benchmark/benign-corpus.txt phan_mem_sach/
+python -m archive_guard.benchmark --benign phan_mem_sach/ --no-clamav --out ketqua
+```
+
+Bộ mẫu dương tính tổng hợp: `python benchmark/dung_mau_tong_hop.py tonghop/` rồi `--malicious tonghop/`.
+Quy trình đo trước/sau khi sửa luật: [CONTRIBUTING.md](../CONTRIBUTING.md#đo-báo-nhầm-trước-khi-merge).

@@ -88,15 +88,30 @@ API mà phần mềm hợp pháp cũng dùng chỉ được coi là *khả năng
 **Khả năng phát hiện mã độc thật (recall) chưa được đo.**
 Chi tiết và cách tự đo: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
+## Khi nào KHÔNG nên dùng (hoặc không nên chỉ dùng mình nó)
+
+| Tình huống | Vì sao | Nên làm gì |
+|---|---|---|
+| Thay cho antivirus/EDR | Không giám sát thời gian thực, không chạy thử file (phân tích động), không gỡ mã độc | Dùng ArchiveGuard như một lớp **kiểm tra trước khi giải nén**, bên cạnh AV |
+| Quyết định mở một file nhắm thẳng vào bạn chỉ vì kết luận SẠCH | SẠCH = không thấy dấu hiệu; recall trên mã độc thật **chưa đo**; mã độc bị pack/obfuscate mạnh hoặc tải payload lúc chạy để lộ rất ít | Mở trong máy ảo, kết hợp công cụ khác |
+| Máy cách ly mạng (air-gapped) không cập nhật được | Danh sách mã băm cũ dần (mẫu quá 12 tháng bị bỏ ở lần cập nhật); heuristic và YARA vẫn chạy | Chép `malwarebazaar.txt` + chữ ký `.sigstore.json` từ Release `hash-db`, xác minh trên máy có mạng, rồi dùng `--hashes` |
+| File nén rất lớn hoặc định dạng chưa hỗ trợ (ISO, CAB, WIM, Zstandard, NSIS…) | Vượt giới hạn / không giải nén được → **CHƯA QUÉT ĐỦ**, không phải SẠCH | Tăng giới hạn, hoặc giải nén bằng công cụ khác trong máy ảo rồi quét phần bên trong |
+| Dữ liệu không tin cậy trên Windows hoặc ARM mà không có Docker/WSL | Windows chưa có sandbox file/mạng; ARM chưa có seccomp (Unix socket còn mở) | Docker/WSL2 trên Linux x86_64; dùng `--require-sandbox` để không quét khi thiếu sandbox |
+| Tài liệu nhạy cảm kèm `--virustotal` | Mã băm gửi lên VirusTotal cho biết file đó tồn tại | Không bật `--virustotal` cho dữ liệu nội bộ |
+
 ## Tài liệu
 
 | Bạn muốn | Đọc |
 |---|---|
 | Mọi tùy chọn, định dạng JSON, cô lập & sandbox, Docker, cập nhật mã băm, giới hạn cần biết | [docs/USAGE.md](docs/USAGE.md) |
+| Gặp lỗi, mã thoát 4, sandbox không bật | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
+| Đưa vào GitHub Actions, GitLab CI, pre-commit, Docker | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
 | Hiểu code: module, luồng quét, ngân sách, **muốn sửa X thì sửa ở đâu** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Cách chấm điểm, thêm luật / YARA / mã băm | [docs/RULES.md](docs/RULES.md) |
 | Số liệu đo, phương pháp, cách tự đo recall | [docs/BENCHMARK.md](docs/BENCHMARK.md) |
-| Đóng góp code, chạy test, quy trình sửa luật | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Đóng góp code, viết luật, đo báo nhầm trước khi merge, quy trình review luật | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Báo nhầm / bỏ sót (dữ liệu để cải thiện luật) | [Mở issue](https://github.com/nakame9/archive-guard/issues/new/choose) |
+| Định hướng sắp tới | [docs/ROADMAP.md](docs/ROADMAP.md) |
 | Báo lỗ hổng bảo mật | [SECURITY.md](SECURITY.md) |
 | Lịch sử thay đổi | [CHANGELOG.md](CHANGELOG.md) |
 

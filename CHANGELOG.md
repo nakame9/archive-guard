@@ -7,6 +7,19 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Tài liệu & cộng đồng
+- README: "Khi nào KHÔNG nên dùng". Thêm docs/TROUBLESHOOTING.md, docs/INTEGRATION.md (GitHub Actions, GitLab CI,
+  pre-commit, Docker), docs/ROADMAP.md.
+- `.pre-commit-hooks.yaml`: dùng ArchiveGuard làm hook pre-commit (`id: archiveguard`).
+- CONTRIBUTING: viết luật mới, đo báo nhầm trước khi merge, quy trình review luật. Manifest các bộ phần mềm sạch có
+  thêm cột nguồn; `benchmark/tai_bo_sach.py` tải lại đúng từng byte (kiểm tra SHA-256);
+  `benchmark/dung_mau_tong_hop.py` ghi bộ mẫu tổng hợp ra thư mục.
+- SECURITY.md: phạm vi chi tiết (parser, sandbox, báo cáo, chuỗi cung ứng, bí mật), thời gian phản hồi, chính sách PGP.
+- Mẫu issue "Báo nhầm" và "Bỏ sót" tách riêng, có trường cấu trúc (thay mẫu chung cũ) và nhãn tương ứng.
+
+### Sửa
+- Dòng trạng thái không còn ghi tên bộ luật signature-base khi chưa cài yara-python.
+
 ## [0.17.0] – 2026-11-03
 
 ### Thêm

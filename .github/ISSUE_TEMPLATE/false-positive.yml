@@ -1,0 +1,66 @@
+name: Báo nhầm (false positive)
+description: File SẠCH bị gắn ĐÁNG NGỜ hoặc NGUY HIỂM
+title: "[Báo nhầm] "
+labels: ["báo nhầm"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cảm ơn bạn! Mỗi báo nhầm được dùng để sửa luật **và** thêm vào bộ dữ liệu đo báo nhầm (docs/BENCHMARK.md).
+        Để người khác tải lại được đúng file, hãy ghi rõ nguồn công khai và phiên bản.
+  - type: input
+    id: sha256
+    attributes:
+      label: SHA-256 của file bị gắn cờ
+      description: "Linux/macOS: `sha256sum file`; Windows: `Get-FileHash file`"
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Nguồn công khai của file
+      placeholder: "vd. pip download ruff==0.17.3 --platform win_amd64 · npm pack @scope/pkg@1.2.3 · https://…/setup.exe"
+    validations:
+      required: true
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: Kết luận nhận được
+      options: [ĐÁNG NGỜ (mã 1), NGUY HIỂM (mã 2)]
+    validations:
+      required: true
+  - type: textarea
+    id: findings
+    attributes:
+      label: Phát hiện gây báo nhầm
+      description: "Dán các dòng phát hiện (mã luật, `khớp: …`) hoặc phần `findings` trong báo cáo JSON (`--json`)"
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Phiên bản và rules_version
+      description: "`archiveguard -V` và trường `rules_version` trong báo cáo JSON"
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Loại phần mềm
+      options:
+        - Phần mềm thông dụng (thư viện, ứng dụng, game…)
+        - Công cụ hai mặt (debugger, công cụ kiểm thử xâm nhập, hook bàn phím, bộ cài/cập nhật…)
+        - Tài liệu (Office, PDF…)
+        - Khác
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Xác nhận
+      options:
+        - label: File này lấy từ nguồn chính thức và tôi tin là sạch
+          required: true
+        - label: Tôi không đính kèm file nhị phân nào (chỉ mã băm và nguồn)
+          required: true

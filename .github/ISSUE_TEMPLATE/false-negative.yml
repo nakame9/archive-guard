@@ -1,0 +1,75 @@
+name: Bỏ sót (false negative)
+description: Mã độc bị coi là SẠCH hoặc chỉ CHƯA QUÉT ĐỦ
+title: "[Bỏ sót] "
+labels: ["bỏ sót"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Không đính kèm mã độc thật**, kể cả dạng nén có mật khẩu. Chỉ cần mã SHA-256 và trang công khai của mẫu
+        (MalwareBazaar, VirusTotal…). Mỗi bỏ sót được dùng để viết luật **và** đo recall (docs/BENCHMARK.md).
+  - type: input
+    id: sha256
+    attributes:
+      label: SHA-256 của mẫu
+      description: Của file bên trong nếu có thể, kèm SHA-256 của file nén chứa nó
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: Trang công khai của mẫu
+      placeholder: "https://bazaar.abuse.ch/sample/<sha256>/ hoặc https://www.virustotal.com/gui/file/<sha256>"
+    validations:
+      required: true
+  - type: input
+    id: family
+    attributes:
+      label: Họ mã độc / loại (nếu biết)
+      placeholder: "vd. AgentTesla (keylogger), LNK tải PowerShell, macro Office…"
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: Kết luận nhận được
+      options: [SẠCH (mã 0), CHƯA QUÉT ĐỦ (mã 4), ĐÁNG NGỜ nhưng đáng lẽ là NGUY HIỂM]
+    validations:
+      required: true
+  - type: dropdown
+    id: delivery
+    attributes:
+      label: Mẫu được phát tán dưới dạng
+      options:
+        - File nén thường (ZIP/RAR/7z…)
+        - File nén có mật khẩu
+        - Tài liệu Office / PDF
+        - Shortcut .lnk / script (.js, .vbs, .ps1, .hta…)
+        - Ảnh đĩa (.iso, .img, .vhd)
+        - Khác
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Báo cáo của ArchiveGuard
+      description: "Dán output hoặc báo cáo JSON (`--json`). Ghi rõ có cài yara-python / ClamAV / unrar hay không"
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Phiên bản và rules_version
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Theo bạn, dấu hiệu nào đáng lẽ phải bắt được?
+      description: "Chuỗi, hành vi, cấu trúc… (không bắt buộc, nhưng rất có ích để viết luật)"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Xác nhận
+      options:
+        - label: Tôi không đính kèm mẫu mã độc hay link tải trực tiếp
+          required: true

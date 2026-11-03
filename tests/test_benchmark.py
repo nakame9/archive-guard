@@ -39,3 +39,25 @@ def test_sample_split_tunes_on_older_and_tests_on_newer():
     assert [(r["first_seen"][-2:], p) for r, p in out] == [("03", "chinh"), ("05", "chinh"),
                                                            ("07", "kiemtra"), ("09", "kiemtra")]
     assert lay_mau.main(["--auth-key", "x"]) == 2  # thiếu xác nhận máy ảo: từ chối, không gọi mạng
+
+
+def test_corpus_downloader_resolves_pypi_and_scoped_npm(monkeypatch):
+    import importlib.util
+    import json
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("tai_bo_sach", Path(__file__).parent.parent / "benchmark" / "tai_bo_sach.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    asked = []
+
+    def fake_get(url):
+        asked.append(url)
+        if "pypi.org" in url:
+            return json.dumps({"urls": [{"filename": "a-1.0.tar.gz", "url": "x"},
+                                        {"filename": "a-1.0-py3-none-any.whl", "url": "https://files/a.whl"}]}).encode()
+        return json.dumps({"dist": {"tarball": "https://registry/b.tgz"}}).encode()
+
+    monkeypatch.setattr(mod, "_get", fake_get)
+    assert mod.file_url("a-1.0-py3-none-any.whl", "pypi:a==1.0") == "https://files/a.whl"
+    assert mod.file_url("scope-b-2.0.tgz", "npm:@scope/b@2.0") == "https://registry/b.tgz"
+    assert asked == ["https://pypi.org/pypi/a/1.0/json", "https://registry.npmjs.org/@scope%2Fb/2.0"]
