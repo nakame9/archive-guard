@@ -1,17 +1,45 @@
 name: tests
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "41 0 * * *"  # hằng ngày: CVE mới được công bố mà code không đổi vẫn phải bị phát hiện
+
+permissions:
+  contents: read
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - run: pip install ruff
+      - run: pip install --require-hashes -r requirements-dev.txt
       - run: ruff check --output-format=github .
+
+  audit:
+    # Lỗ hổng đã công bố (PyPI Advisory DB / OSV) trong MỌI dependency đã pin, kể cả công cụ release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pip install --require-hashes -r requirements-dev.txt
+      - run: pip-audit --disable-pip --require-hashes --strict -r requirements-dev.txt
+      - run: pip-audit --disable-pip --require-hashes --strict -r .github/requirements-tools.txt
+      - name: Lock file khớp pyproject.toml (đổi dependency mà quên chạy lại uv pip compile)
+        run: |
+          pip install --require-hashes -r .github/requirements-tools.txt
+          # -o vào bản sao của lock hiện có: uv giữ nguyên các phiên bản đã pin, chỉ đổi khi pyproject.toml đòi
+          cp requirements.txt /tmp/r.txt && cp requirements-dev.txt /tmp/rd.txt
+          uv pip compile pyproject.toml --extra yara --universal --python-version 3.10 --generate-hashes -q -o /tmp/r.txt
+          uv pip compile pyproject.toml --extra yara --extra dev --universal --python-version 3.10 --generate-hashes -q -o /tmp/rd.txt
+          diff <(grep -E "^[a-z]" requirements.txt) <(grep -E "^[a-z]" /tmp/r.txt)
+          diff <(grep -E "^[a-z]" requirements-dev.txt) <(grep -E "^[a-z]" /tmp/rd.txt)
 
   test:
     strategy:
@@ -25,22 +53,19 @@ jobs:
             python: "3.13"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements-dev.txt
+      - run: pip install --no-deps -e .
       - name: Cài unrar (test RAR với file thật trong tests/data, không được bỏ qua trên Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q unrar || {
             sudo add-apt-repository -y multiverse && sudo apt-get update -q && sudo apt-get install -y -q unrar; }
-      # test thất bại hiện thành annotation công khai: xem được lỗi mà không cần tải log
-      - run: pip install pytest-github-actions-annotate-failures
-      - name: Cài YARA (bỏ qua nếu nền tảng chưa có bản dựng sẵn)
-        run: pip install yara-python
-        continue-on-error: true
+      # pytest-github-actions-annotate-failures (trong requirements-dev.txt): test thất bại hiện thành annotation
       - run: pytest -q
 
   sandbox-report:
@@ -51,18 +76,19 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - run: pip install -e .
+      - run: pip install --require-hashes -r requirements.txt
+      - run: pip install --no-deps -e .
       - run: python -m archive_guard.sandbox
 
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - run: docker build -t archive-guard .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build --no-cache -t archive-guard .
       - name: Tạo mẫu thử vô hại
         run: |
           mkdir ci-samples
@@ -76,6 +102,10 @@ jobs:
           code=$?
           echo "mã thoát: $code"
           test "$code" -eq 1
+      - name: unrar trong image đọc được RAR có mật khẩu (phải ra SẠCH, mã thoát 0)
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,size=64m --cap-drop ALL \
+            --security-opt no-new-privileges -v "$PWD/tests/data:/scan:ro" archive-guard rar5-psw.rar -p password --no-clamav
       - name: Trạng thái sandbox bên trong container
         run: |
           docker run --rm --network none --read-only --tmpfs /tmp:rw,size=64m --cap-drop ALL \

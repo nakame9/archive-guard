@@ -1,11 +1,20 @@
-# Mỗi tuần mở PR khi GitHub Action hoặc thư viện Python có phiên bản mới; CI sẽ kiểm tra PR đó.
+# Mỗi tuần mở PR khi có phiên bản mới; CI (gồm pip-audit và kiểm tra lock file) chạy trên PR đó.
+# Mọi thứ đều được pin chính xác (SHA commit, digest, hash), nên KHÔNG có gì tự đổi nếu không qua PR.
 version: 2
 updates:
-  - package-ecosystem: github-actions
+  - package-ecosystem: github-actions  # action pin theo SHA commit, kèm chú thích phiên bản
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: pip
+  - package-ecosystem: pip  # requirements.txt, requirements-dev.txt (uv pip compile, có hash)
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip  # .github/requirements-tools.txt: build, cyclonedx-bom, uv
+    directory: /.github
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker  # digest của python:3.13-slim trong Dockerfile
     directory: /
     schedule:
       interval: weekly
