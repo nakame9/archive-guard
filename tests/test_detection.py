@@ -86,6 +86,9 @@ def test_custom_yara_rule(tmp_path):
     report = scan(make_zip({"x.bin": b"..hello-malware.."}), yara_paths=[rule])
     assert "YARA.Demo" in rules_of(report)
     assert report.verdict == "malicious"
+    # evidence: tên chuỗi + offset của lần khớp đầu, không chép nội dung khớp
+    detail = next(f for x in report.files for f in x.findings if f.rule == "YARA.Demo").detail
+    assert "khớp: $a@0x2" in detail and "hello-malware" not in detail
 
 
 @pytest.mark.parametrize("score, verdict", [(85, "malicious"), (70, "suspicious")])

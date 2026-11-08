@@ -54,6 +54,9 @@ def yara_scan(compiled, data: bytes, timeout: int = 60) -> list[Finding]:
             category = meta.get("category") or ("known_malware" if "score" in meta else "generic")
             # Detection Rule License 1.1: thông báo khi luật khớp phải giữ tên tác giả luật
             detail = f"luật {m.rule}" + (f", tác giả: {meta['author']}" if meta.get("author") else "")
+            # evidence: chuỗi nào khớp, ở offset nào (lần khớp đầu, tối đa 5 chuỗi) – KHÔNG chép nội dung khớp
+            hits = [f"{s.identifier}@{s.instances[0].offset:#x}" for s in m.strings if s.instances][:5]
+            detail += f"; khớp: {', '.join(hits)}" if hits else ""
             out.append(Finding(f"YARA.{m.rule}", sev, str(category), str(meta.get("description", m.rule)), detail,
                                engine="yara", confidence=confidence, attack=str(meta.get("attack", ""))))
     return out

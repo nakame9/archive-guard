@@ -14,17 +14,17 @@ if sys.version_info >= (3, 11):
 else:  # Python 3.10
     import tomli as tomllib
 
-from . import __version__, engines, isolate, malwarebazaar, sandbox
+from . import __version__, api, engines, isolate, malwarebazaar, sandbox
 from .extract import archive_kind, has_trailing_zip
 from .rules import CATEGORIES, SEVERITY_NAME
-from .scanner import VERDICTS, Report, Scanner
+from .scanner import VERDICTS, Scanner
 
 LABEL = {"clean": "SẠCH", "incomplete": "CHƯA QUÉT ĐỦ", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
 COLOR = {"clean": "32", "incomplete": "35", "suspicious": "33", "malicious": "31"}
 # Tăng khi đổi tên/xóa/đổi nghĩa một trường JSON; chỉ THÊM trường mới thì giữ nguyên
 SCHEMA_VERSION = 1
 EXIT_CODE = {"clean": 0, "suspicious": 1, "malicious": 2, "incomplete": 4}
-FAILABLE = ("suspicious", "malicious", "incomplete")
+FAILABLE = api.FAILABLE
 CONFIG_ENV = "ARCHIVEGUARD_CONFIG"
 ENV_PREFIX = "ARCHIVEGUARD_"
 # Không đọc từ file cấu hình/biến môi trường: bí mật (mật khẩu có tùy chọn riêng; Auth-Key dùng ABUSECH_AUTH_KEY),
@@ -358,38 +358,27 @@ def main(argv=None) -> int:
                  if use_worker else " | cô lập: TẮT (parser chạy trong process chính)")
               + (f" | cấu hình: {config_path}" if config_path else "")
               + (f" | allowlist: {len(scanner.allowlist)} mục" if scanner.allowlist else ""))
-    worker_args = ["--max-depth", str(args.max_depth), "--max-size", str(args.max_size),
-                   "--max-total", str(args.max_total), "--timeout", str(args.timeout),
-                   "--max-archive-size", str(args.max_archive_size)]
-    worker_args += [x for y in args.yara for x in ("--yara", str(y.resolve()))]
-    worker_args += [x for h in args.hashes for x in ("--hashes", str(h.resolve()))]
-    worker_args += [x for a in args.allowlist for x in ("--allowlist", str(a.resolve()))]
-    worker_args += [f for f, on in (("--all", args.all), ("--no-yara", args.no_yara),
-                                    ("--no-clamav", args.no_clamav)) if on]
+    limits = {"max_depth": args.max_depth, "max_size": args.max_size, "max_total": args.max_total,
+              "timeout": args.timeout, "max_archive_size": args.max_archive_size}
+    worker_args = api.worker_args(**limits, yara=args.yara, hashes=args.hashes, allowlist=args.allowlist,
+                                  use_yara=not args.no_yara, use_clamav=not args.no_clamav, show_all=args.all)
 
     reports, failed, errors, worker_sandbox = [], False, 0, None
     started, slowest = time.monotonic(), 0.0
     for path in _targets(args.paths):
         t0 = time.monotonic()
         if use_worker:
-            # clamdscan --fdpass chạy ở đây: process cha chỉ chuyển file descriptor cho clamd, không phân tích file
-            clamd = None if args.no_clamav else engines.clamav_scan(path, args.timeout, commands=("clamdscan",))
-            report, output, error, timed_out = isolate.scan(path, worker_args, args.password, hard_timeout,
-                                                             args.worker_memory, use_sandbox=not args.no_sandbox,
-                                                             require_sandbox=args.require_sandbox, clamd=clamd)
+            report, output, failure, timed_out = api.scan_isolated(
+                path, worker_args, args.password, hard_timeout, args.worker_memory, sandbox=not args.no_sandbox,
+                require_sandbox=args.require_sandbox, use_clamav=not args.no_clamav, clamav_timeout=args.timeout)
             # worker có thể đã bị khai thác: không cho in ký tự điều khiển terminal (\r\n của Windows là bình thường)
             print(_safe(output.replace("\r\n", "\n")), end="")
-            if report is not None and (not isinstance(report, dict) or report.get("verdict") not in VERDICTS):
-                report, error, timed_out = None, "worker trả về kết quả không hợp lệ", False
-            if report is not None:
-                worker_sandbox = worker_sandbox or report.get("sandbox")
-            if report is None:  # worker treo/crash/hết RAM: CHƯA QUÉT ĐỦ, không bao giờ là SẠCH
-                failed_report = Report(str(path))
-                failed_report.skip("WORKER_TIMEOUT" if timed_out else "WORKER_ERROR", str(path), error)
-                _print_report(failed_report, args.all, paint)
-                report = failed_report.to_dict() | {"worker_error": error}
+            if failure:  # worker treo/crash/hết RAM/kết quả hỏng: CHƯA QUÉT ĐỦ, không bao giờ là SẠCH
+                _print_report(failure, args.all, paint)
                 failed = failed or not timed_out  # crash/lỗi → mã 3; hết giờ → CHƯA QUÉT ĐỦ (mã 4)
                 errors += not timed_out
+            else:
+                worker_sandbox = worker_sandbox or report.get("sandbox")
             if args.virustotal:
                 _virustotal(report, vt_key, vt_state, paint)
             reports.append(report)
@@ -417,6 +406,12 @@ def main(argv=None) -> int:
         layers = {k: v for k, v in worker_sandbox.items() if isinstance(v, str)}
         print(paint("\nSandbox của worker: " + "; ".join(f"{k}: {v}" for k, v in layers.items()), "2"))
     if args.json:
+        for r in reports:
+            r["disposition"] = api.disposition(r["verdict"], args.fail_on)
+        settings = limits | {"fail_on": args.fail_on, "require_sandbox": args.require_sandbox,
+                             "sandbox": use_worker and not args.no_sandbox, "isolate": use_worker,
+                             "clamav": not args.no_clamav, "yara_enabled": not args.no_yara, "yara": args.yara,
+                             "hashes": args.hashes, "allowlist": args.allowlist}
         args.json.write_text(json.dumps({"schema_version": SCHEMA_VERSION, "version": __version__,
                                          "rules_version": scanner.rules_version,
                                          "rules_components": scanner.rules_components,
@@ -424,6 +419,8 @@ def main(argv=None) -> int:
                                          "isolation": {"hard_timeout": hard_timeout, "memory_mb": args.worker_memory,
                                                        "sandbox": not args.no_sandbox} if use_worker else None,
                                          "sandbox": sandbox_status,
+                                         # worker không tính: đọc file allowlist/YARA sau khi sandbox đã chặn
+                                         "policy": None if args._worker else api.policy(settings),
                                          "reports": reports},
                                         ensure_ascii=False, indent=2), encoding="utf-8")
         if not args._worker:
