@@ -24,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 from . import malwarebazaar, sandbox
+from .scanner import VERDICTS
 
 MEMORY_SUPPORTED = sys.platform.startswith("linux") or os.name == "nt"
 PACKAGE_PARENT = Path(__file__).resolve().parent.parent
@@ -159,6 +160,23 @@ def worker_env(tmp) -> dict:
     return env
 
 
+def check_report(report) -> None:
+    """Kiểm tra cấu trúc và tính nhất quán tối thiểu của báo cáo do worker trả về; sai thì ném ValueError.
+
+    Chặn được báo cáo cụt, sai kiểu, tự mâu thuẫn (worker lỗi hoặc ghi dở). KHÔNG chặn được worker đã bị khai thác
+    và nói dối khéo – xem docs/THREAT_MODEL.md.
+    """
+    if not isinstance(report, dict) or report.get("verdict") not in VERDICTS:
+        raise ValueError("thiếu hoặc sai trường verdict")
+    files, incomplete = report.get("files"), report.get("incomplete")
+    if not isinstance(files, list) or not files or not all(isinstance(f, dict) for f in files):
+        raise ValueError("trường files phải là danh sách khác rỗng")
+    if not isinstance(incomplete, list):
+        raise ValueError("thiếu hoặc sai trường incomplete")
+    if incomplete and report["verdict"] == "clean":
+        raise ValueError("mâu thuẫn: còn phần chưa quét nhưng kết luận SẠCH")
+
+
 def add_known_malware(report: dict, index: int, findings: list) -> None:
     """Gộp phát hiện CRITICAL "mã độc đã biết" do process cha tự thu thập (ClamAV, VirusTotal) vào báo cáo dạng dict
     của file thứ index, và nâng kết luận lên NGUY HIỂM."""
@@ -201,10 +219,14 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
         try:
             data = json.loads(out.read_text(encoding="utf-8"))
             (report,) = data["reports"]  # đúng một báo cáo cho đúng một file
+        except (OSError, ValueError, KeyError, TypeError):
+            last = (stderr.strip().splitlines() or ["không có thông báo lỗi"])[-1]
+            return None, stdout, f"worker lỗi (mã thoát {code}): {last}", False
+        try:
+            check_report(report)
             report["sandbox"] = data.get("sandbox")
             # gộp ở ĐÂY, không gửi vào worker: worker bị khai thác có thể xóa phát hiện của ClamAV khỏi báo cáo
             add_known_malware(report, 0, [f.to_dict() for f in clamd or []])
-        except (OSError, ValueError, KeyError, TypeError, IndexError):
-            last = (stderr.strip().splitlines() or ["không có thông báo lỗi"])[-1]
-            return None, stdout, f"worker lỗi (mã thoát {code}): {last}", False
+        except (ValueError, KeyError, TypeError, IndexError) as e:
+            return None, stdout, f"worker trả kết quả không hợp lệ: {e}", False
         return report, stdout, None, False

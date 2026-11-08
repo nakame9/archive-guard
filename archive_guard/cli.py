@@ -384,7 +384,8 @@ def main(argv=None) -> int:
             if report is not None:
                 worker_sandbox = worker_sandbox or report.get("sandbox")
             if report is None:  # worker treo/crash/hết RAM: CHƯA QUÉT ĐỦ, không bao giờ là SẠCH
-                failed_report = Report(str(path), incomplete=[error])
+                failed_report = Report(str(path))
+                failed_report.skip("WORKER_TIMEOUT" if timed_out else "WORKER_ERROR", str(path), error)
                 _print_report(failed_report, args.all, paint)
                 report = failed_report.to_dict() | {"worker_error": error}
                 failed = failed or not timed_out  # crash/lỗi → mã 3; hết giờ → CHƯA QUÉT ĐỦ (mã 4)

@@ -4,15 +4,15 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import re
-import struct
 import time
-import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import engines, malwarebazaar, rules
 from .extract import (
     ARCHIVE_KINDS,
+    LOCKED,
+    TOO_BIG,
     ArchiveError,
     Budget,
     BudgetExceeded,
@@ -27,9 +27,31 @@ from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
 DATA_DIR = Path(__file__).parent / "data"
 MB = 1 << 20
+BOMB_SKIPPED = "bỏ qua nội dung (nghi zip bomb)"
 BOMB_MIN_SIZE = 50 * MB  # chỉ xét tỷ lệ nén với file con lớn, tránh báo nhầm file text nhỏ
 # "incomplete": không phát hiện gì NHƯNG có phần chưa kiểm tra được → không được coi là sạch
 VERDICTS = ("clean", "incomplete", "suspicious", "malicious")
+# Mã lý do của phần chưa kiểm tra được (trường JSON incomplete_reasons). Chỉ THÊM mã mới, không đổi nghĩa mã cũ.
+REASONS = {
+    "ARCHIVE_TOO_LARGE": "file nén đầu vào lớn hơn --max-archive-size",
+    "FILE_TOO_LARGE": "file (không phải file nén) lớn hơn --max-size",
+    "CLAMAV_UNAVAILABLE": "ClamAV không chạy được hoặc hết giờ",
+    "ENGINE_ERROR": "heuristic hoặc YARA lỗi trên một file",
+    "UNSUPPORTED_FORMAT": "định dạng chứa file chưa giải nén được (CAB, ISO, VHD…)",
+    "TOO_DEEP": "file nén lồng quá --max-depth tầng",
+    "BUDGET_FILES": "vượt số entry tối đa",
+    "BUDGET_BYTES": "vượt tổng dung lượng giải nén --max-total",
+    "BUDGET_TIME": "vượt --timeout",
+    "ENCRYPTED_LISTING": "danh sách file bị mã hóa",
+    "ARCHIVE_UNREADABLE": "file nén hỏng hoặc parser lỗi",
+    "STRUCTURE_UNCHECKED": "không kiểm tra được cấu trúc ZIP (entry giấu, vùng chồng nhau)",
+    "MEMBER_TOO_LARGE": "file con lớn hơn --max-size",
+    "MEMBER_ENCRYPTED": "file con có mật khẩu, không có mật khẩu đúng",
+    "MEMBER_BOMB": "file con nghi zip bomb, bỏ qua nội dung",
+    "MEMBER_UNREADABLE": "file con không đọc được (hỏng, thiếu unrar/7-Zip…)",
+    "WORKER_ERROR": "worker crash, lỗi hoặc trả kết quả không hợp lệ",
+    "WORKER_TIMEOUT": "worker bị dừng vì hard timeout",
+}
 
 
 # Số nhóm hành vi KHÁC nhau mà chỉ dấu "khả năng" (confidence low) phải đủ để được tính khi không có bằng chứng
@@ -97,7 +119,14 @@ class FileResult:
 class Report:
     target: str
     files: list = field(default_factory=list)
-    incomplete: list = field(default_factory=list)  # những phần không kiểm tra được
+    incomplete: list = field(default_factory=list)  # những phần không kiểm tra được (chuỗi hiển thị)
+    reasons: list = field(default_factory=list)  # cùng nội dung, có mã lý do: {code, where, detail} – xem REASONS
+
+    def skip(self, code: str, where: str, detail: str):
+        """Ghi một phần CHƯA kiểm tra được. Mọi lối thoát không quét trọn vẹn đều phải đi qua đây."""
+        assert code in REASONS, code
+        self.incomplete.append(f"{where}: {detail}")
+        self.reasons.append({"code": code, "where": where, "detail": detail})
 
     @property
     def verdict(self):
@@ -111,7 +140,13 @@ class Report:
 
     def to_dict(self):
         return {"target": self.target, "verdict": self.verdict, "categories": self.categories,
-                "complete": not self.incomplete, "incomplete": self.incomplete, "files": [f.to_dict() for f in self.files]}
+                "complete": not self.incomplete, "incomplete": self.incomplete, "incomplete_reasons": self.reasons,
+                "files": [f.to_dict() for f in self.files]}
+
+
+def _member_reason(note: str) -> str:
+    return {TOO_BIG: "MEMBER_TOO_LARGE", LOCKED: "MEMBER_ENCRYPTED", BOMB_SKIPPED: "MEMBER_BOMB"}.get(
+        note, "MEMBER_UNREADABLE")
 
 
 def _digests(src) -> dict:
@@ -225,21 +260,21 @@ class Scanner:
         size = path.stat().st_size
         if archive_kind(head) and size > self.max_archive:
             report.files.append(FileResult(path.name, archive_kind(head), size, note="file nén quá lớn, không quét"))
-            report.incomplete.append(f"{path.name}: file nén lớn hơn {self.max_archive // MB} MB (--max-archive-size)")
+            report.skip("ARCHIVE_TOO_LARGE", path.name, f"file nén lớn hơn {self.max_archive // MB} MB (--max-archive-size)")
         elif archive_kind(head) or size <= self.max_file:
             # file nén gốc được đọc thẳng từ đĩa, không nạp cả file vào RAM
             src = path if archive_kind(head) else path.read_bytes()
             self._scan(src, path.name, path.name, 0, report, budget)
         else:
             report.files.append(FileResult(path.name, "?", path.stat().st_size, note="quá lớn, không quét"))
-            report.incomplete.append(f"{path.name}: lớn hơn {self.max_file // MB} MB")
+            report.skip("FILE_TOO_LARGE", path.name, f"lớn hơn {self.max_file // MB} MB")
         if self.use_clamav:
             left = budget.deadline - time.monotonic()  # ClamAV dùng phần thời gian còn lại, không hơn
             found = self.clamav(path, timeout=left) if left >= 1 else None
             if found is None:
-                report.incomplete.append(
-                    "ClamAV không chạy được hoặc hết thời gian quét (thiếu cơ sở dữ liệu? chạy freshclam, "
-                    "tăng --timeout, hoặc dùng --no-clamav)")
+                report.skip("CLAMAV_UNAVAILABLE", "ClamAV",
+                            "không chạy được hoặc hết thời gian quét (thiếu cơ sở dữ liệu? chạy freshclam, "
+                            "tăng --timeout, hoặc dùng --no-clamav)")
             else:
                 report.files[0].findings += found
         self._apply_allowlist(path, report)
@@ -297,24 +332,25 @@ class Scanner:
                 try:
                     res.findings += run()
                 except Exception as e:  # engine lỗi/timeout KHÔNG được coi là sạch
-                    self._not_checked(res, report, display, f"{engine} lỗi: {type(e).__name__}: {e}")
+                    self._not_checked(res, report, display, "ENGINE_ERROR", f"{engine} lỗi: {type(e).__name__}: {e}")
             fmt = unsupported_container(data) if kind not in ARCHIVE_KINDS else None
             if fmt:
-                self._not_checked(res, report, display, f"định dạng {fmt} chưa được giải nén, chỉ quét dạng thô")
+                self._not_checked(res, report, display, "UNSUPPORTED_FORMAT",
+                                  f"định dạng {fmt} chưa được giải nén, chỉ quét dạng thô")
         # file nén gắn sau dữ liệu khác (SFX, byte rác ở đầu) cũng được giải nén, không chỉ file có magic ở byte 0
         inner = (kind, src) if kind in ARCHIVE_KINDS else embedded_archive(data, kind) if data is not None else None
         if inner:
             if depth >= self.max_depth:
                 res.findings.append(Finding("ARCHIVE.TOO_DEEP", MEDIUM, "archive_abuse",
                                             f"File nén lồng nhau quá {self.max_depth} tầng – dừng lại"))
-                report.incomplete.append(f"{display}: lồng quá sâu")
+                report.skip("TOO_DEEP", display, "lồng quá sâu")
             else:
                 self._walk(*inner, name, display, depth, res, report, budget)
 
     @staticmethod
-    def _not_checked(res, report, display, why):
+    def _not_checked(res, report, display, code, why):
         res.note = "; ".join(filter(None, [res.note, why]))
-        report.incomplete.append(f"{display}: {why}")
+        report.skip(code, display, why)
 
     def _budget(self):
         """Ngân sách dùng chung cho MỌI tầng lồng nhau của một lần quét."""
@@ -333,14 +369,15 @@ class Scanner:
                              f"Quét quá {self.timeout} giây – dừng (file nén có thể được thiết kế để làm treo trình quét)",
                              e.detail)}[e.kind]
         res.findings.append(f)
-        report.incomplete.append(f"{display}: dừng – {f.title}")
+        report.skip(f"BUDGET_{e.kind.upper()}", display, f"dừng – {f.title}")
 
     @staticmethod
-    def _zip_structure(src) -> list:
+    def _zip_structure(src) -> list | None:
+        """Phát hiện về cấu trúc ZIP; None = KHÔNG kiểm tra được (người gọi phải ghi CHƯA QUÉT ĐỦ)."""
         try:
             overlaps, hidden = zip_anomalies(src)
-        except (zipfile.BadZipFile, OSError, ValueError, struct.error):
-            return []  # file hỏng: đã được báo ở bước giải nén
+        except Exception:  # code của ta chạy trên dữ liệu không tin cậy: lỗi gì cũng là "chưa kiểm tra", không là sạch
+            return None
         out = []
         if overlaps:
             out.append(Finding("ARCHIVE.OVERLAP", HIGH, "archive_abuse",
@@ -364,7 +401,7 @@ class Scanner:
                 if m.packed and m.size >= BOMB_MIN_SIZE and m.size / m.packed > self.max_ratio:
                     res.findings.append(Finding("ARCHIVE.BOMB_RATIO", HIGH, "archive_abuse",
                                                 f"Tỷ lệ nén bất thường {m.size // m.packed}:1 – nghi zip bomb", m.name))
-                    m.data, m.note = None, "bỏ qua nội dung (nghi zip bomb)"
+                    m.data, m.note = None, BOMB_SKIPPED
                 if m.data is not None:
                     self._scan(m.data, m.name, child, depth + 1, report, budget)
                     continue
@@ -378,19 +415,24 @@ class Scanner:
                         "File thực thi bị đặt mật khẩu – thủ thuật né antivirus" if runnable
                         else "Nội dung bị đặt mật khẩu, chưa kiểm tra được (dùng --password)"))
                 if m.note:
-                    report.incomplete.append(f"{child}: {m.note}")
+                    report.skip(_member_reason(m.note), child, m.note)
                 report.files.append(r)
             if kind == "zip":
-                res.findings += self._zip_structure(src)
+                found = self._zip_structure(src)
+                if found is None:
+                    self._not_checked(res, report, display, "STRUCTURE_UNCHECKED",
+                                      "không kiểm tra được cấu trúc ZIP (entry bị giấu, vùng dữ liệu chồng nhau)")
+                else:
+                    res.findings += found
         except BudgetExceeded as e:  # ném ra NGAY trong lúc giải nén, giữa chừng một file con
             self._stop(budget, e, res, report, display)
         except EncryptedArchive as e:
             res.findings.append(Finding("ARCHIVE.ENCRYPTED", MEDIUM, "evasion",
                                         "Mã hóa cả danh sách file – không xem được bên trong", str(e)))
-            self._not_checked(res, report, display, str(e))
+            self._not_checked(res, report, display, "ENCRYPTED_LISTING", str(e))
         except ArchiveError as e:
             res.findings.append(Finding("ARCHIVE.CORRUPT", LOW, "archive_abuse",
                                         "File nén hỏng hoặc không đọc được", str(e)))
-            self._not_checked(res, report, display, f"không đọc được: {e}")
+            self._not_checked(res, report, display, "ARCHIVE_UNREADABLE", f"không đọc được: {e}")
         finally:
             members.close()  # dừng hẳn bộ giải nén ở mọi lối thoát, không đọc thêm byte nào

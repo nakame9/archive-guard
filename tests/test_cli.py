@@ -42,7 +42,7 @@ def test_cli_unexpected_crash_is_error_not_clean(tmp_path, monkeypatch):
 
 SCHEMA_V1 = {
     "top": {"schema_version", "version", "rules_version", "rules_components", "engines", "reports"},
-    "report": {"target", "verdict", "categories", "complete", "incomplete", "files"},
+    "report": {"target", "verdict", "categories", "complete", "incomplete", "incomplete_reasons", "files"},
     "file": {"path", "kind", "size", "sha256", "score", "verdict", "note", "findings"},
     "finding": {"rule", "severity", "category", "title", "detail", "engine"},
 }
