@@ -22,6 +22,8 @@ def _alive(pid):
             return ") Z " not in f.read()  # tiến trình zombie coi như đã chết
     except FileNotFoundError:  # process vừa bị dọn xong (Linux), hoặc hệ điều hành không có /proc (macOS)
         return not os.path.isdir("/proc")
+    except ProcessLookupError:  # bị dọn đúng lúc đang đọc /proc/<pid>/stat
+        return False
 
 
 def _isolated_json(tmp_path, *argv):
