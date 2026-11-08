@@ -21,7 +21,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 
 from . import malwarebazaar, sandbox
@@ -47,23 +46,29 @@ def run(cmd, stdin: bytes, timeout: float, memory_mb: int | None = None, cwd=Non
 
         kw["start_new_session"] = True  # process group riêng → kill được cả cây
         kw["preexec_fn"] = limits
-    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         cwd=cwd, env=env, **kw)
-    job = None
-    try:
-        if os.name == "nt":
-            job = _windows_job(p, memory_mb, cpu)
-        out, err = p.communicate(stdin, timeout=timeout)
-        timed_out = False
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill_tree(p, job)
-        out, err = p.communicate()
-    finally:
-        _kill_tree(p, job)  # dọn process cháu còn sót, vd. clamscan khi worker crash giữa chừng
-        if job:
-            _k32().CloseHandle(job)
-    return p.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), timed_out
+    # stdout/stderr ghi ra file, KHÔNG qua pipe: process cháu tự tách khỏi nhóm (setsid) mà giữ đầu ghi của pipe thì
+    # communicate() chờ EOF mãi mãi, vô hiệu hóa hard timeout. Với file, chỉ cần chờ chính worker thoát.
+    # ponytail: process cháu đã setsid thoát được killpg và vẫn sống tới khi tự thoát (vẫn trong sandbox);
+    # muốn dọn chắc chắn trên Linux thì đặt worker vào cgroup riêng
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=out, stderr=err, cwd=cwd, env=env, **kw)
+        job = None
+        try:
+            if os.name == "nt":
+                job = _windows_job(p, memory_mb, cpu)
+            p.communicate(stdin, timeout=timeout)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_tree(p, job)
+            p.wait()
+        finally:
+            _kill_tree(p, job)  # dọn process cháu còn sót, vd. clamscan khi worker crash giữa chừng
+            if job:
+                _k32().CloseHandle(job)
+        out.seek(0)
+        err.seek(0)
+        return p.returncode, out.read().decode("utf-8", "replace"), err.read().decode("utf-8", "replace"), timed_out
 
 
 def _kill_tree(p, job):
@@ -154,11 +159,24 @@ def worker_env(tmp) -> dict:
     return env
 
 
+def add_known_malware(report: dict, index: int, findings: list) -> None:
+    """Gộp phát hiện CRITICAL "mã độc đã biết" do process cha tự thu thập (ClamAV, VirusTotal) vào báo cáo dạng dict
+    của file thứ index, và nâng kết luận lên NGUY HIỂM."""
+    if not findings:
+        return
+    f = report["files"][index]
+    f["findings"] += findings
+    f["verdict"], f["score"] = "malicious", 100
+    report["verdict"] = "malicious"
+    report["categories"] = sorted({*report.get("categories", []), "known_malware"})
+
+
 def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | None = None,
          use_sandbox: bool = True, require_sandbox: bool = False, clamd=None):
     """Quét một file trong worker. Trả (report dict hoặc None, stdout của worker, lỗi hoặc None, hết_giờ).
 
-    clamd: kết quả clamdscan do process cha chạy (list Finding) hoặc None (worker tự chạy clamscan nếu có).
+    clamd: kết quả clamdscan do process cha chạy (list Finding), gộp vào báo cáo SAU khi worker trả về; None = worker
+    tự chạy clamscan nếu có.
     report có thêm trường "sandbox": trạng thái các lớp sandbox mà worker đã áp (sandbox.py).
     """
     with tempfile.TemporaryDirectory(prefix="archiveguard-", ignore_cleanup_errors=True) as tmp:
@@ -173,7 +191,7 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
             cmd, wrapped = sandbox.macos_wrap(cmd, tmp)
         request = json.dumps({"passwords": list(passwords), "sandbox": use_sandbox, "require_sandbox": require_sandbox,
                               "outer": "sandbox-exec" if wrapped else None,
-                              "clamd": None if clamd is None else [asdict(f) for f in clamd]}).encode()
+                              "clamd_done": clamd is not None}).encode()
         try:
             code, stdout, stderr, timed_out = run(cmd, request, hard_timeout, memory_mb, cwd=tmp, env=env)
         except OSError as e:
@@ -184,7 +202,9 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
             data = json.loads(out.read_text(encoding="utf-8"))
             (report,) = data["reports"]  # đúng một báo cáo cho đúng một file
             report["sandbox"] = data.get("sandbox")
-        except (OSError, ValueError, KeyError, TypeError):
+            # gộp ở ĐÂY, không gửi vào worker: worker bị khai thác có thể xóa phát hiện của ClamAV khỏi báo cáo
+            add_known_malware(report, 0, [f.to_dict() for f in clamd or []])
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
             last = (stderr.strip().splitlines() or ["không có thông báo lỗi"])[-1]
             return None, stdout, f"worker lỗi (mã thoát {code}): {last}", False
         return report, stdout, None, False

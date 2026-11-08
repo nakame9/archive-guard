@@ -197,7 +197,7 @@ thực sự đã bật** trên máy bạn. Kiểm tra nhanh: `python -m archive_
 
 | Tùy chọn | Khi nào dùng |
 |---|---|
-| `--require-sandbox` | **Production:** từ chối quét (mã 3) nếu worker không giới hạn được truy cập file **và** chặn được mạng. Trên Windows luôn từ chối: hãy dùng Docker hoặc WSL |
+| `--require-sandbox` | **Production:** từ chối quét (mã 3) nếu worker không giới hạn được truy cập file **và** chặn được mạng. Trên Windows luôn từ chối, trên macOS cũng vậy (sandbox-exec chưa chặn đọc file): hãy dùng Docker hoặc WSL |
 | `--no-sandbox` | Vẫn dùng worker nhưng không áp sandbox (khi sandbox làm hỏng một môi trường lạ) |
 | `--no-isolate` | **Không khuyến khích với dữ liệu không tin cậy:** parser chạy ngay trong process chính, không hard timeout, không sandbox; nhanh hơn ~0,1 giây mỗi file nén |
 

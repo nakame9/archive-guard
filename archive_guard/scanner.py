@@ -18,6 +18,7 @@ from .extract import (
     BudgetExceeded,
     EncryptedArchive,
     archive_kind,
+    embedded_archive,
     iter_members,
     unsupported_container,
     zip_anomalies,
@@ -300,13 +301,15 @@ class Scanner:
             fmt = unsupported_container(data) if kind not in ARCHIVE_KINDS else None
             if fmt:
                 self._not_checked(res, report, display, f"định dạng {fmt} chưa được giải nén, chỉ quét dạng thô")
-        if kind in ARCHIVE_KINDS:
+        # file nén gắn sau dữ liệu khác (SFX, byte rác ở đầu) cũng được giải nén, không chỉ file có magic ở byte 0
+        inner = (kind, src) if kind in ARCHIVE_KINDS else embedded_archive(data, kind) if data is not None else None
+        if inner:
             if depth >= self.max_depth:
                 res.findings.append(Finding("ARCHIVE.TOO_DEEP", MEDIUM, "archive_abuse",
                                             f"File nén lồng nhau quá {self.max_depth} tầng – dừng lại"))
                 report.incomplete.append(f"{display}: lồng quá sâu")
             else:
-                self._walk(kind, src, name, display, depth, res, report, budget)
+                self._walk(*inner, name, display, depth, res, report, budget)
 
     @staticmethod
     def _not_checked(res, report, display, why):

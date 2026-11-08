@@ -91,3 +91,11 @@ def test_invalid_worker_result_is_never_clean(tmp_path, monkeypatch):
     code = main([str(tmp_path / "a.zip"), "--no-clamav", "--json", str(out)])
     report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
     assert code == 3 and report["verdict"] == "incomplete" and "không hợp lệ" in report["worker_error"]
+
+
+def test_macos_sandbox_exec_does_not_claim_read_restriction(monkeypatch, tmp_path):
+    # profile sandbox-exec chỉ chặn ghi + mạng, vẫn đọc được ~/.ssh: trước 0.17.1 báo filesystem_restricted = True
+    monkeypatch.setattr(sys, "platform", "darwin")
+    status = sandbox.apply([], tmp_path, outer="sandbox-exec")
+    assert status["network_blocked"] and not status["filesystem_restricted"]
+    assert sandbox.missing(status) == ["giới hạn truy cập file"]

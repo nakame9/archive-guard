@@ -9,6 +9,7 @@ from helpers import (
     FAKE_EXE,
     PS_DOWNLOADER,
     make_7z,
+    make_pe,
     make_zip,
     rules_of,
     scan,
@@ -133,3 +134,32 @@ def test_rar_in_sandboxed_worker(unrar, tmp_path):
     report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
     assert code == 0 and report["verdict"] == "clean" and report["complete"]
     assert len(report["files"]) == 3
+
+
+# --- File nén nằm sau dữ liệu khác: 7-Zip/unzip vẫn mở được, nên trình quét cũng phải mở ---------------------------
+
+@pytest.mark.parametrize("prefix", [b"XXXX", bytes(4096)], ids=["4-byte-rac", "4KB-so-0"])
+def test_zip_with_junk_prefix_is_still_extracted(prefix):
+    # trước 0.17.1: magic không ở byte 0 → không giải nén, kết luận SẠCH dù bên trong có mã độc đã biết
+    report = scan(prefix + make_zip({"eicar.com": EICAR}), "a.zip")
+    assert report.verdict == "malicious" and "HASH.KNOWN_BAD" in rules_of(report)
+
+
+def test_zip_appended_to_pe_sfx_is_extracted():
+    sfx = make_pe([(".text", b"\xc3" * 64, 0x60000020)]) + make_zip({"eicar.com": EICAR})
+    report = scan(sfx, "setup.exe")
+    assert report.verdict == "malicious" and any(f.path == "setup.exe > eicar.com" for f in report.files)
+
+
+@pytest.mark.parametrize("prefix", [b"\x00JUNK", None], ids=["byte-rac", "pe-sfx"])
+def test_7z_after_other_data_is_extracted(prefix):
+    stub = prefix if prefix is not None else make_pe([(".text", b"\xc3" * 64, 0x60000020)])
+    report = scan(stub + make_7z({"eicar.com": EICAR}), "a.bin")
+    assert report.verdict == "malicious" and "HASH.KNOWN_BAD" in rules_of(report)
+
+
+def test_pe_without_appended_archive_is_not_unpacked():
+    # chữ ký 7z nằm TRONG section (vd. bảng hằng của chính 7-Zip) không phải overlay → không coi là file nén
+    pe = make_pe([(".rdata", b"7z\xbc\xaf\x27\x1c" + bytes(58), 0x40000040)])
+    report = scan(pe, "7z.dll")
+    assert report.verdict == "clean" and len(report.files) == 1 and not report.incomplete

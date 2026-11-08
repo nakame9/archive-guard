@@ -129,6 +129,41 @@ def archive_kind(head: bytes) -> str | None:
     return None
 
 
+def _pe_overlay(data: bytes) -> int | None:
+    """Vị trí bắt đầu phần dữ liệu gắn sau PE (overlay) = cuối section xa nhất; None nếu header PE không hợp lệ."""
+    try:
+        pe = struct.unpack_from("<I", data, 0x3C)[0]
+        if data[pe:pe + 4] != b"PE\0\0":
+            return None
+        count, opt = struct.unpack_from("<2xH12xH", data, pe + 4)  # NumberOfSections, SizeOfOptionalHeader
+        table = pe + 24 + opt
+        # mỗi section 40 byte; SizeOfRawData + PointerToRawData ở byte 16–23 → cuối section
+        return max((sum(struct.unpack_from("<II", data, table + 40 * i + 16)) for i in range(count)), default=None)
+    except struct.error:
+        return None
+
+
+def embedded_archive(data: bytes, kind: str) -> tuple[str, bytes] | None:
+    """File nén nằm sau dữ liệu khác (SFX, polyglot, vài byte rác ở đầu): 7-Zip/unzip vẫn mở được nên phải quét.
+
+    Trả (loại, dữ liệu để giải nén) hoặc None. ZIP: zipfile tự dò danh mục ở cuối file và bù offset → đưa nguyên
+    file. RAR/7z: tìm chữ ký trong overlay của PE (SFX) hoặc sau byte đầu của file nhị phân lạ → cắt từ chữ ký.
+    """
+    if kind in ARCHIVE_KINDS:
+        return None
+    if zipfile.is_zipfile(io.BytesIO(data)):
+        return "zip", data
+    # ponytail: chỉ dò RAR/7z ở overlay PE và file nhị phân lạ; text/script/PDF chứa chữ ký nén chưa được xét
+    start = _pe_overlay(data) if kind == "pe" else 1 if kind == "unknown" else None
+    if start is None:
+        return None
+    for magic, inner in ((b"Rar!\x1a\x07", "rar"), (b"7z\xbc\xaf\x27\x1c", "7z")):
+        i = data.find(magic, start)
+        if i >= 0:
+            return inner, data[i:]
+    return None
+
+
 def iter_members(kind, src, name, limit, passwords=(), budget=None):
     """Duyệt các file bên trong một file nén.
 

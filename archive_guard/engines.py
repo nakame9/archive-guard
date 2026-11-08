@@ -120,8 +120,10 @@ def clamav_scan(path, timeout: float = 900, commands=("clamdscan", "clamscan")) 
         if left <= 0:
             return None
         try:
-            p = subprocess.run([exe, "--no-summary", "--infected", *limits, str(path)],
-                               capture_output=True, text=True, timeout=left)
+            # đường dẫn tuyệt đối: tên file bắt đầu bằng "-" không bị hiểu thành tùy chọn của ClamAV;
+            # errors="replace": output có tên file không đúng bảng mã của máy không được làm crash cả lần quét
+            p = subprocess.run([exe, "--no-summary", "--infected", *limits, str(Path(path).resolve())],
+                               capture_output=True, text=True, errors="replace", timeout=left)
         except subprocess.TimeoutExpired:
             return None  # không thử tiếp clamscan: sẽ vượt quá thời gian còn lại
         except OSError:

@@ -85,3 +85,31 @@ def test_rules_version_follows_rule_content(tmp_path):
 def test_conflicting_isolation_options_are_rejected(argv):
     with pytest.raises(SystemExit):
         main(["x.zip", *argv])
+
+
+def test_directory_scan_finds_prefixed_zip(tmp_path):
+    from helpers import EICAR
+    (tmp_path / "a.dat").write_bytes(b"XXXX" + make_zip({"eicar.com": EICAR}))  # magic không ở byte 0
+    out = tmp_path / "r.json"
+    code = main([str(tmp_path), "--no-isolate", "--no-clamav", "--json", str(out)])
+    reports = json.loads(out.read_text(encoding="utf-8"))["reports"]
+    assert code == 2 and [r["verdict"] for r in reports] == ["malicious"]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="cần FIFO (POSIX)")
+def test_directory_scan_skips_fifo_instead_of_hanging(tmp_path):
+    import threading
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    fifo = tmp_path / "aaa.fifo"  # đứng trước a.zip theo thứ tự quét
+    os.mkfifo(fifo)
+    result = {}
+    t = threading.Thread(target=lambda: result.setdefault("code", main([str(tmp_path), "--no-isolate", "--no-clamav"])),
+                         daemon=True)
+    t.start()
+    t.join(30)
+    try:
+        assert not t.is_alive(), "quét thư mục bị treo ở FIFO"
+        assert result["code"] == 0
+    finally:  # code cũ đang chặn ở open(): mở đầu ghi để nhả nó ra
+        if t.is_alive():
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))

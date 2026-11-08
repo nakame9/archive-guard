@@ -7,6 +7,22 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Bảo mật
+- **Né phát hiện bằng byte rác ở đầu file nén:** ZIP có vài byte trước magic, ZIP/7z/RAR gắn sau một PE (SFX) hoặc
+  sau dữ liệu nhị phân khác không được giải nén và có thể bị kết luận SẠCH, dù 7-Zip/unzip vẫn mở được. Giờ chúng
+  được giải nén và quét như file nén thường (`extract.embedded_archive`); quét thư mục cũng nhận ra ZIP dạng này.
+- **Quét thư mục bị treo vĩnh viễn** khi gặp FIFO hoặc file thiết bị: giờ chỉ mở file thường.
+- **Kết quả clamdscan không còn đi qua worker:** process chính tự gộp phát hiện của ClamAV vào báo cáo sau khi worker
+  trả về; worker bị khai thác không xóa được chúng. Yêu cầu gửi worker chỉ còn cờ `clamd_done`.
+- **Hard timeout không còn bị vô hiệu hóa** khi một process cháu tự tách khỏi process group (`setsid`) mà giữ
+  stdout: output của worker ghi ra file tạm thay vì pipe.
+- ClamAV: output có tên file sai bảng mã không còn làm crash cả lần quét; đường dẫn truyền cho ClamAV là tuyệt đối.
+- macOS: trạng thái sandbox không còn báo `filesystem_restricted: true` (sandbox-exec chỉ chặn ghi, vẫn đọc được mọi
+  file) – `--require-sandbox` giờ từ chối quét trên macOS, giống Windows.
+
+### Khác
+- Phiên bản chỉ khai báo một chỗ (`pyproject.toml`); `__version__` đọc từ metadata của gói.
+
 ### Tài liệu & cộng đồng
 - Bốn tab trên trang GitHub, mỗi tab một nhóm người đọc: README rút gọn thành trang giới thiệu; CONTRIBUTING chỉ cho
   người đóng góp (việc của người giữ repo chuyển sang `docs/MAINTAINING.md`); SECURITY.md chỉ còn chính sách (phần kỹ

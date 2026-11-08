@@ -185,8 +185,10 @@ def apply(inputs, tmp, outer=None):
     if sys.platform.startswith("linux"):
         return _linux(read_paths(inputs), [str(tmp), "/dev/null"])
     if outer:
-        return {"sandbox_exec": "bật (chặn mạng, chặn ghi ngoài thư mục tạm)",
-                "filesystem_restricted": True, "network_blocked": True}
+        # profile sandbox-exec chỉ chặn GHI và mạng; worker vẫn ĐỌC được mọi file (vd. ~/.ssh) → không báo là đã
+        # giới hạn truy cập file, để --require-sandbox có cùng ý nghĩa với Linux
+        return {"sandbox_exec": "bật (chặn mạng, chặn ghi ngoài thư mục tạm; chưa chặn đọc)",
+                "filesystem_restricted": False, "network_blocked": True}
     return {"note": "chưa có sandbox file/mạng trên hệ điều hành này (chỉ cô lập process: RAM, CPU, kill cả cây)",
             "filesystem_restricted": False, "network_blocked": False}
 
