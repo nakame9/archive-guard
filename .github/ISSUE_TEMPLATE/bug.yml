@@ -30,7 +30,7 @@ body:
     id: actual
     attributes:
       label: Kết quả nhận được
-      description: Dán phần output hoặc báo cáo JSON liên quan
+      description: Dán phần output hoặc báo cáo JSON liên quan. Với crash hoặc mã thoát 3, chạy lại lệnh kèm `--debug` và dán cả traceback
       render: text
     validations:
       required: true

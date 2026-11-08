@@ -7,6 +7,13 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Thay đổi nội bộ (không đổi hành vi)
+- `cli.main()` tách thành các hàm một trách nhiệm (`_parser`, `_check_args`, `_run_updates`, `_scanner`,
+  `_worker_sandbox`, `_banner`, `_scan_in_process`, `_write_json`): độ phức tạp vòng 36 → 18. Đã đối chiếu mã thoát và
+  kết quả JSON với bản trước trên 7 tình huống (sạch, mã độc, ZIP có byte rác ở đầu, thư mục, `--no-isolate`,
+  `--fail-on`).
+- Xóa `Budget.remaining()` (không nơi nào gọi).
+
 ### Bảo mật
 - **Lỗi khi kiểm tra cấu trúc ZIP không còn bị nuốt thành SẠCH:** trước đây một số lỗi ở bước tìm entry bị giấu/vùng
   dữ liệu chồng nhau bị bỏ qua im lặng (kết luận SẠCH), số khác làm crash cả lần quét; giờ đều là CHƯA QUÉT ĐỦ
@@ -15,6 +22,8 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
   có file nào, hoặc tự mâu thuẫn (còn phần chưa quét mà kết luận SẠCH) → lỗi (mã 3), không bao giờ SẠCH.
 
 ### Thêm
+- `--debug`: in traceback đầy đủ khi gặp lỗi ngoài dự kiến (thay vì một dòng `Kiểu: thông báo`) và toàn bộ stderr của
+  worker lỗi (thay vì dòng cuối). Mẫu báo lỗi trên GitHub hướng dẫn dán output này.
 - **API thư viện `archive_guard.scan_file()`** (M3): luôn quét trong worker có sandbox, không có cách tắt cô lập qua
   API; trả báo cáo kèm `disposition` và `policy`. CLI và API dùng chung một đường quét (`api.scan_isolated`).
 - Trường JSON `disposition` mỗi báo cáo (`allow` / `review` / `quarantine` / `reject`, theo `--fail-on`) và `policy`

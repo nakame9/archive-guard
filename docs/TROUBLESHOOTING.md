@@ -26,13 +26,16 @@ Tìm theo **thông báo** in ra (gõ Ctrl+F với một đoạn của nó). Mã 
 | Thông báo | Nguyên nhân | Cách xử lý |
 |---|---|---|
 | `Lỗi: --require-sandbox nhưng worker thiếu: giới hạn truy cập file, chặn mạng (…)` | Máy không có đủ sandbox (xem bảng dưới) | Chạy trong Docker/WSL trên Linux x86_64, hoặc bỏ `--require-sandbox` nếu chấp nhận rủi ro |
-| `worker lỗi (mã thoát N): …` | Worker crash. Dòng cuối là lỗi của worker | Thử `--no-sandbox` để biết có phải do sandbox không; báo lỗi kèm hệ điều hành, kernel (`uname -r`) |
-| `worker trả về kết quả không hợp lệ` | Kết quả của worker sai cấu trúc – có thể worker đã bị khai thác | Giữ lại file, báo riêng qua SECURITY.md |
+| `worker lỗi (mã thoát N): …` | Worker crash. Mặc định chỉ hiện dòng cuối stderr của worker | Chạy lại với `--debug` để xem cả traceback; thử `--no-sandbox` để biết có phải do sandbox không; báo lỗi kèm output `--debug`, hệ điều hành, kernel (`uname -r`) |
+| `worker trả kết quả không hợp lệ: …` | Báo cáo của worker cụt, sai cấu trúc hoặc tự mâu thuẫn (phần sau dấu `:` cho biết lý do) – có thể worker đã bị khai thác | Giữ lại file, báo riêng qua SECURITY.md |
 | `không tạo được Job Object để giới hạn RAM (WinError …)` | Windows không cho gắn worker vào Job Object (vd. đã nằm trong một job khác) | Bỏ `--worker-memory` hoặc chạy ngoài môi trường đó |
 | `Lỗi: không đọc được …` | Không có quyền đọc file/thư mục | Kiểm tra quyền; chạy bằng user có quyền đọc |
 | `Lỗi cập nhật: Auth-Key bị từ chối (HTTP 401)` / `thiếu Auth-Key` | `--update-hashes` cần Auth-Key của abuse.ch | Đăng ký miễn phí tại auth.abuse.ch, đặt `ABUSECH_AUTH_KEY`. Hoặc dùng `--update-db` (không cần Auth-Key) |
 | `Lỗi cập nhật: cần thư viện sigstore để xác minh chữ ký` | `--update-db` thiếu thư viện | `pip install "archive-guard[update]"` |
 | `Lỗi cập nhật: chữ ký KHÔNG hợp lệ, không dùng file này` | File tải về không do workflow của repo ký, hoặc tải dở | Thử lại sau vài phút (Release đang được cập nhật). Nếu vẫn lỗi, **không** dùng file đó và báo riêng qua SECURITY.md |
+
+`Lỗi khi quét …: <Kiểu lỗi>: …` (với `--no-isolate`) là lỗi ngoài dự kiến của chính ArchiveGuard: chạy lại với
+`--debug` và đính kèm traceback khi báo lỗi.
 
 Lỗi tham số (sai tên tùy chọn trong file cấu hình, allowlist sai định dạng, `--fail-on` sai giá trị…) trả **mã 2**
 của argparse, kèm dòng cho biết file và dòng gây lỗi.

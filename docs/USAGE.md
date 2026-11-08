@@ -28,6 +28,7 @@ Thư mục được quét đệ quy; chỉ file có **chữ ký** của file né
 | | `--fail-on KẾT_LUẬN` | `suspicious,malicious,incomplete` | Kết luận nào làm lệnh thất bại |
 | | `-a, --all` | tắt | Liệt kê cả file sạch |
 | | `--no-color` | – | Tắt màu (cũng tắt khi có biến môi trường `NO_COLOR`) |
+| | `--debug` | – | In traceback đầy đủ khi gặp lỗi ngoài dự kiến và toàn bộ stderr của worker lỗi (mặc định chỉ một dòng). Dùng khi báo lỗi; không in mật khẩu hay khóa API |
 | Luật | `--yara PATH` | – | Thêm file/thư mục luật YARA (lặp lại được) |
 | | `--hashes FILE` | – | Thêm danh sách mã băm mã độc (lặp lại được) |
 | | `--no-yara`, `--no-clamav` | – | Tắt engine tương ứng |
