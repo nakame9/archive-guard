@@ -139,7 +139,9 @@ def test_7z_time_grows_linearly():
             best = min(best, time.perf_counter() - t)
         return best
 
-    assert seconds(40) <= 2.5 * seconds(20)
+    # 10 → 40 file: tuyến tính ≈ 4×, bình phương ≈ 16×. Ngưỡng 8× nằm giữa: vẫn bắt lỗi bình phương nhưng không trượt
+    # vì nhiễu thời gian của runner CI (trước đây 20 → 40 với ngưỡng 2,5× trượt trên macOS: đo được 2,8×)
+    assert seconds(40) <= 8 * seconds(10)
 
 
 def test_time_budget(monkeypatch):
