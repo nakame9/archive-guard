@@ -136,7 +136,7 @@ archiveguard_duration_seconds 61.402
 archiveguard_archive_duration_max_seconds 9.115
 archiveguard_exit_code 4
 archiveguard_last_run_timestamp_seconds 1793690400
-archiveguard_info{version="0.17.0",rules_version="…"} 1
+archiveguard_info{version="0.17.1",rules_version="…"} 1
 ```
 
 - Job định kỳ: ghi vào thư mục textfile collector của node_exporter (`--collector.textfile.directory`).
@@ -151,7 +151,7 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 ## Báo cáo JSON
 
 ```json
-{"schema_version": 1, "version": "0.17.0", "rules_version": "2e803535739a",
+{"schema_version": 1, "version": "0.17.1", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
  "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}

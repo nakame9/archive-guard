@@ -1,6 +1,6 @@
 # Lộ trình
 
-Cập nhật lần cuối: 2026-11-03 (bản 0.17.0). Thứ tự dưới đây là thứ tự ưu tiên, **không** phải cam kết ngày.
+Cập nhật lần cuối: 2026-11-08 (bản 0.17.1). Thứ tự dưới đây là thứ tự ưu tiên, **không** phải cam kết ngày.
 Muốn góp ý hoặc nhận làm một mục: mở issue (mẫu "Lỗi" hoặc thảo luận trong issue sẵn có) và nhắc tên mục.
 
 ## Đang chờ người giữ repo
@@ -8,7 +8,7 @@ Muốn góp ý hoặc nhận làm một mục: mở issue (mẫu "Lỗi" hoặc 
 | Việc | Vì sao quan trọng |
 |---|---|
 | Bật **Private vulnerability reporting** (Settings → Code security) | Liên kết báo lỗ hổng riêng tư trong SECURITY.md chỉ hoạt động khi bật |
-| Thiết lập PyPI Trusted Publisher, ký tag `v0.17.0` → bản phát hành đầu tiên | Người dùng cài được bằng `pip install archive-guard` với attestation PEP 740 |
+| Thiết lập PyPI Trusted Publisher, ký tag `v0.17.1` → bản phát hành đầu tiên | Người dùng cài được bằng `pip install archive-guard` với attestation PEP 740 |
 | **Đo recall trên mã độc thật** trong máy ảo (`benchmark/lay_mau.py`) | Con số quan trọng nhất còn thiếu; mọi luật sau này nên được chọn theo kết quả đó |
 
 ## Tiếp theo
@@ -36,6 +36,7 @@ Muốn góp ý hoặc nhận làm một mục: mở issue (mẫu "Lỗi" hoặc 
 
 | Bản | Nội dung |
 |---|---|
+| 0.17.1 | Vá lỗi bảo mật: file nén gắn sau dữ liệu khác (SFX, byte rác ở đầu), treo ở FIFO, kết quả ClamAV gộp ở process chính, hard timeout với process cháu `setsid`, trạng thái sandbox macOS |
 | 0.17.0 | Macro VBA (giải nén mã nguồn), template Office từ xa, LNK, PowerShell mã hóa, cấu trúc ZIP, URLhaus, VirusTotal |
 | 0.16.0 | `--update-db` có chữ ký, file cấu hình, `--fail-on`, `--allowlist`, `--stats`; lock file có hash, release ký Sigstore + SBOM |
 | 0.15.0 | YARA signature-base (140 file, DRL 1.1), mã băm có ngày (bỏ mẫu > 12 tháng), script lấy mẫu đo recall |

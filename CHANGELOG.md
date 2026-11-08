@@ -7,6 +7,10 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.17.1] – 2026-11-08
+
+Bản đầu tiên được gắn tag và phát hành (0.17.0 chỉ tồn tại trên nhánh `main`, chưa từng có tag `v0.17.0`).
+
 ### Bảo mật
 - **Né phát hiện bằng byte rác ở đầu file nén:** ZIP có vài byte trước magic, ZIP/7z/RAR gắn sau một PE (SFX) hoặc
   sau dữ liệu nhị phân khác không được giải nén và có thể bị kết luận SẠCH, dù 7-Zip/unzip vẫn mở được. Giờ chúng

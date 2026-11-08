@@ -4,7 +4,7 @@ Chọn ngưỡng thất bại bằng `--fail-on` ([USAGE.md](USAGE.md#--fail-on-
 pipeline: `--fail-on malicious,incomplete`, tức chặn thứ chắc chắn xấu **và** thứ chưa kiểm tra được; để người
 xem lại những gì ĐÁNG NGỜ qua báo cáo JSON.
 
-> Cài đúng phiên bản đã kiểm tra: dùng tag phát hành (vd. `v0.17.0`) và `requirements.txt` có hash của chính tag
+> Cài đúng phiên bản đã kiểm tra: dùng tag phát hành (vd. `v0.17.1`) và `requirements.txt` có hash của chính tag
 > đó. Đừng cài từ nhánh `main` cho pipeline production.
 
 ## GitHub Actions
@@ -25,9 +25,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - name: Cài ArchiveGuard v0.17.0 (dependency kiểm tra hash) + unrar
+      - name: Cài ArchiveGuard v0.17.1 (dependency kiểm tra hash) + unrar
         run: |
-          git clone --depth 1 --branch v0.17.0 https://github.com/nakame9/archive-guard.git "$RUNNER_TEMP/ag"
+          git clone --depth 1 --branch v0.17.1 https://github.com/nakame9/archive-guard.git "$RUNNER_TEMP/ag"
           python -m pip install --require-hashes -r "$RUNNER_TEMP/ag/requirements.txt"
           python -m pip install --no-deps "$RUNNER_TEMP/ag"
           sudo apt-get install -y -q unrar
@@ -55,7 +55,7 @@ jobs:
 archiveguard:
   image: python:3.13-slim
   variables:
-    AG_VERSION: v0.17.0
+    AG_VERSION: v0.17.1
   before_script:
     # unrar nằm ở thành phần non-free của Debian
     - 'sed -i "s/^Components: main$/Components: main non-free/" /etc/apt/sources.list.d/debian.sources'
@@ -82,7 +82,7 @@ Chặn commit thêm file nén nguy hiểm hoặc chưa kiểm tra được vào 
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/nakame9/archive-guard
-    rev: v0.17.0
+    rev: v0.17.1
     hooks:
       - id: archiveguard
         # mặc định: --no-clamav --fail-on malicious,incomplete; đổi bằng args, vd. chặn cả ĐÁNG NGỜ:
@@ -97,7 +97,7 @@ người commit, nếu không sẽ ra CHƯA QUÉT ĐỦ và hook thất bại.
 ## Docker (mọi hệ thống CI)
 
 ```bash
-docker build --no-cache -t archive-guard https://github.com/nakame9/archive-guard.git#v0.17.0
+docker build --no-cache -t archive-guard https://github.com/nakame9/archive-guard.git#v0.17.1
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop ALL \
   --security-opt no-new-privileges --memory 2g --pids-limit 128 \
   -v "$PWD:/scan:ro" archive-guard . --fail-on malicious,incomplete
