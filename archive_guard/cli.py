@@ -15,8 +15,8 @@ else:  # Python 3.10
     import tomli as tomllib
 
 from . import __version__, engines, isolate, malwarebazaar, sandbox
-from .extract import archive_kind
-from .rules import CATEGORIES, SEVERITY_NAME, Finding
+from .extract import archive_kind, has_trailing_zip
+from .rules import CATEGORIES, SEVERITY_NAME
 from .scanner import VERDICTS, Report, Scanner
 
 LABEL = {"clean": "SẠCH", "incomplete": "CHƯA QUÉT ĐỦ", "suspicious": "ĐÁNG NGỜ", "malicious": "NGUY HIỂM"}
@@ -54,12 +54,9 @@ def _virustotal(report, api_key, state, paint):
         if hit and hit["malicious"] >= engines.VT_MIN_ENGINES:
             title = f"VirusTotal: {hit['malicious']}/{hit['total']} engine phát hiện là mã độc"
             print(paint(f"  VirusTotal: {_safe(f['path'])}: {hit['malicious']}/{hit['total']} engine", "31"))
-            f["findings"].append({"rule": "HASH.VIRUSTOTAL", "severity": "CRITICAL", "category": "known_malware",
-                                  "title": title, "detail": sha, "engine": "virustotal", "confidence": "high",
-                                  "attack": ""})
-            f["verdict"], f["score"] = "malicious", 100
-            report["verdict"] = "malicious"
-            report["categories"] = sorted({*report.get("categories", []), "known_malware"})
+            isolate.add_known_malware(report, i, [{
+                "rule": "HASH.VIRUSTOTAL", "severity": "CRITICAL", "category": "known_malware", "title": title,
+                "detail": sha, "engine": "virustotal", "confidence": "high", "attack": ""}])
 
 
 def _fail_on(text):
@@ -159,10 +156,13 @@ def _targets(paths):
             yield p
             continue
         for f in sorted(p.rglob("*")):
+            if not f.is_file():  # thư mục con, FIFO, thiết bị: open() trên FIFO chặn mãi
+                continue
             try:
                 with f.open("rb") as fh:
-                    is_archive = archive_kind(fh.read(512)) is not None
-            except OSError:  # thư mục con, file bị khóa…
+                    # bắt cả ZIP có byte rác ở đầu, SFX dạng ZIP (danh mục nằm ở cuối file)
+                    is_archive = archive_kind(fh.read(512)) is not None or has_trailing_zip(fh)
+            except OSError:  # file bị khóa…
                 continue
             if is_archive:
                 yield f
@@ -335,10 +335,9 @@ def main(argv=None) -> int:
     except ValueError as e:  # allowlist sai định dạng: dừng hẳn, không quét với allowlist thiếu dòng
         ap.error(str(e))
     if args._worker and not args.no_clamav:  # worker không mở được socket tới clamd
-        clamd = request.get("clamd")
-        if clamd is not None:  # process cha đã quét bằng clamdscan
+        if request.get("clamd_done"):  # process cha đã quét bằng clamdscan và TỰ gộp kết quả (worker không xóa được)
             scanner.use_clamav = True
-            scanner.clamav = lambda path, timeout: [Finding(**d) for d in clamd]
+            scanner.clamav = lambda path, timeout: []
         else:
             scanner.clamav = lambda path, timeout: engines.clamav_scan(path, timeout, commands=("clamscan",))
     sandbox_status = None

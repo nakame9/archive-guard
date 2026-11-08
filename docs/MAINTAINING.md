@@ -18,7 +18,7 @@ Mọi việc chỉ người có quyền ghi vào repo mới làm: phát hành, c
 ## Phát hành
 
 1. Chuyển `[Chưa phát hành]` trong `CHANGELOG.md` thành `[X.Y.Z] – ngày`.
-2. Tăng `version` (`pyproject.toml`) và `__version__` (`archive_guard/__init__.py`); cập nhật số phiên bản trong
+2. Tăng `version` (`pyproject.toml` – nguồn duy nhất, `__version__` đọc từ đó); cập nhật số phiên bản trong
    ví dụ của `docs/INTEGRATION.md` và trong `docs/ROADMAP.md`.
 3. Commit, đợi CI xanh, gắn **tag có chữ ký**: `git tag -s vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`.
 4. Workflow `release` tự build, sinh SBOM, ký Sigstore + provenance (và tự xác minh), đăng PyPI (chờ duyệt ở môi

@@ -129,6 +129,66 @@ def archive_kind(head: bytes) -> str | None:
     return None
 
 
+def _pe_overlay(data: bytes) -> int | None:
+    """Vị trí bắt đầu phần dữ liệu gắn sau PE (overlay) = cuối section xa nhất; None nếu header PE không hợp lệ."""
+    try:
+        pe = struct.unpack_from("<I", data, 0x3C)[0]
+        if data[pe:pe + 4] != b"PE\0\0":
+            return None
+        count, opt = struct.unpack_from("<2xH12xH", data, pe + 4)  # NumberOfSections, SizeOfOptionalHeader
+        table = pe + 24 + opt
+        # mỗi section 40 byte; SizeOfRawData + PointerToRawData ở byte 16–23 → cuối section
+        return max((sum(struct.unpack_from("<II", data, table + 40 * i + 16)) for i in range(count)), default=None)
+    except struct.error:
+        return None
+
+
+def has_trailing_zip(f) -> bool:
+    """f (đã mở, seek được) kết thúc bằng một ZIP thật, kể cả khi có dữ liệu khác phía trước.
+
+    Không dùng zipfile.is_zipfile: nó chỉ dò chuỗi PK\\x05\\x06, vốn xuất hiện ngẫu nhiên trong file PE sạch (vd.
+    Squirrel-Mono.exe) và kéo theo một "danh mục" giả hàng GB. Ở đây đòi danh mục (PK\\x01\\x02) nằm ngay trước EOCD.
+    """
+    f.seek(0, os.SEEK_END)
+    size = f.tell()
+    base = max(0, size - 65536 - 22)
+    f.seek(base)
+    tail = f.read()
+    i = tail.rfind(b"PK\x05\x06")
+    if i < 0 or len(tail) < i + 22:
+        return False
+    count, end = struct.unpack_from("<HI", tail, i + 10)[0], i
+    cd_size = struct.unpack_from("<I", tail, i + 12)[0]
+    if tail[i - 20:i - 16] == b"PK\x06\x07" and tail[i - 76:i - 72] == b"PK\x06\x06":  # ZIP64
+        cd_size, end, count = struct.unpack_from("<Q", tail, i - 76 + 40)[0], i - 76, 1
+    start = base + end - cd_size
+    if count == 0 or start < 0:
+        return False
+    f.seek(start)
+    return f.read(4) == b"PK\x01\x02"
+
+
+def embedded_archive(data: bytes, kind: str) -> tuple[str, bytes] | None:
+    """File nén nằm sau dữ liệu khác (SFX, polyglot, vài byte rác ở đầu): 7-Zip/unzip vẫn mở được nên phải quét.
+
+    Trả (loại, dữ liệu để giải nén) hoặc None. ZIP: zipfile tự dò danh mục ở cuối file và bù offset → đưa nguyên
+    file. RAR/7z: tìm chữ ký trong overlay của PE (SFX) hoặc sau byte đầu của file nhị phân lạ → cắt từ chữ ký.
+    """
+    if kind in ARCHIVE_KINDS:
+        return None
+    if has_trailing_zip(io.BytesIO(data)):
+        return "zip", data
+    # ponytail: chỉ dò RAR/7z ở overlay PE và file nhị phân lạ; text/script/PDF chứa chữ ký nén chưa được xét
+    start = _pe_overlay(data) if kind == "pe" else 1 if kind == "unknown" else None
+    if start is None:
+        return None
+    for magic, inner in ((b"Rar!\x1a\x07", "rar"), (b"7z\xbc\xaf\x27\x1c", "7z")):
+        i = data.find(magic, start)
+        if i >= 0:
+            return inner, data[i:]
+    return None
+
+
 def iter_members(kind, src, name, limit, passwords=(), budget=None):
     """Duyệt các file bên trong một file nén.
 

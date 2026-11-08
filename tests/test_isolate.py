@@ -22,6 +22,8 @@ def _alive(pid):
             return ") Z " not in f.read()  # tiến trình zombie coi như đã chết
     except FileNotFoundError:  # process vừa bị dọn xong (Linux), hoặc hệ điều hành không có /proc (macOS)
         return not os.path.isdir("/proc")
+    except ProcessLookupError:  # bị dọn đúng lúc đang đọc /proc/<pid>/stat
+        return False
 
 
 def _isolated_json(tmp_path, *argv):
@@ -134,7 +136,7 @@ def test_worker_does_not_see_secrets_from_parent_environment(tmp_path, monkeypat
     assert "PATH" in seen["env"]
 
 
-def test_clamdscan_runs_in_parent_and_result_reaches_worker(tmp_path, monkeypatch):
+def test_clamdscan_runs_in_parent_and_result_reaches_report(tmp_path, monkeypatch):
     from archive_guard import engines
     from archive_guard.rules import CRITICAL, Finding
     calls = []
@@ -151,3 +153,65 @@ def test_clamdscan_runs_in_parent_and_result_reaches_worker(tmp_path, monkeypatc
     assert calls == [("clamdscan",)]  # process cha chỉ gọi clamdscan; worker (process khác) không gọi bản giả này
     assert code == 2 and report["verdict"] == "malicious"
     assert any(x["rule"] == "CLAMAV" for f in report["files"] for x in f["findings"])
+
+
+def test_compromised_worker_cannot_drop_clamav_result(tmp_path, monkeypatch):
+    # worker bị khai thác trả báo cáo SẠCH hợp lệ về cấu trúc: phát hiện của clamdscan (process cha) vẫn phải còn
+    from archive_guard import engines, isolate
+    from archive_guard.rules import CRITICAL, Finding
+
+    monkeypatch.setattr(engines, "clamav_scan", lambda path, timeout=900, commands=():
+                        [Finding("CLAMAV", CRITICAL, "known_malware", "ClamAV: Test.Sig", str(path), "clamav")])
+    seen = {}
+
+    def lying_worker(cmd, stdin, timeout, memory_mb=None, cwd=None, env=None):
+        seen["request"] = json.loads(stdin)
+        clean = {"path": "a.zip", "kind": "zip", "size": 1, "sha256": "", "score": 0, "verdict": "clean",
+                 "note": "", "findings": []}
+        report = {"target": "a.zip", "verdict": "clean", "categories": [], "complete": True, "incomplete": [],
+                  "files": [clean]}
+        out = cmd[cmd.index("--json") + 1]
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({"reports": [report], "sandbox": None}, f)
+        return 0, "", "", False
+
+    monkeypatch.setattr(isolate, "run", lying_worker)
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    out = tmp_path / "r.json"
+    code = main([str(tmp_path / "a.zip"), "--json", str(out)])
+    report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
+    assert "CLAMAV" not in json.dumps(seen["request"])  # kết quả không đi qua worker
+    assert code == 2 and report["verdict"] == "malicious"
+    assert any(x["rule"] == "CLAMAV" for x in report["files"][0]["findings"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="setsid chỉ có trên POSIX; Windows dùng Job Object")
+def test_run_returns_when_grandchild_escapes_process_group():
+    # process cháu tự setsid (thoát killpg) và giữ stdout: trước 0.17.1 run() chờ EOF của pipe mãi mãi
+    import subprocess
+    import sys
+    import threading
+
+    from archive_guard import isolate
+    escape = ("import subprocess, sys; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],"
+              " start_new_session=True); print(p.pid, flush=True)")
+    result = {}
+    t = threading.Thread(target=lambda: result.update(r=isolate.run([sys.executable, "-c", escape], b"", 5)),
+                         daemon=True)
+    t.start()
+    t.join(30)
+    pid = None
+    try:
+        assert not t.is_alive(), "run() bị treo vì process cháu giữ pipe"
+        pid = int(result["r"][1].split()[0])
+    finally:
+        if pid is None:  # code cũ: tìm process cháu để dọn
+            out = subprocess.run(["pgrep", "-f", "time.sleep(120)"], capture_output=True, text=True).stdout
+            pids = [int(x) for x in out.split()]
+        else:
+            pids = [pid]
+        for x in pids:
+            try:
+                os.kill(x, 9)
+            except ProcessLookupError:
+                pass

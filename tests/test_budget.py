@@ -186,6 +186,18 @@ def test_clamav_timeout_does_not_fall_back(monkeypatch):
     assert len(calls) == 1 and calls[0] <= 3  # không thử tiếp clamscan sau khi clamdscan hết giờ
 
 
+@pytest.mark.skipif(os.name == "nt", reason="clamscan giả viết bằng sh")
+def test_clamav_output_with_undecodable_name_does_not_crash(tmp_path, monkeypatch):
+    # tên file không đúng bảng mã của máy (vd. tiếng Việt trên Windows cp1252): trước 0.17.1 ném UnicodeDecodeError
+    from archive_guard import engines
+    fake = tmp_path / "clamscan"
+    fake.write_text("#!/bin/sh\nprintf '/x/\\377.zip: Eicar-Test-Signature FOUND\\n'\nexit 1\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    found = engines.clamav_scan(tmp_path / "-x.zip", timeout=30, commands=("clamscan",))
+    assert [f.rule for f in found] == ["CLAMAV"] and "Eicar-Test-Signature" in found[0].title
+
+
 def test_7z_worker_thread_stops_when_consumer_stops():
     import threading
 
