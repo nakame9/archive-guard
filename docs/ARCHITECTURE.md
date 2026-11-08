@@ -18,7 +18,7 @@ archive-guard/
 │   ├── benchmark.py        # đo precision/recall/tỷ lệ báo nhầm trên dữ liệu có nhãn
 │   └── data/               # known_bad.txt, malwarebazaar.txt (cập nhật hằng tuần), rules/*.yar
 ├── tests/                  # mỗi file test một mảng (xem bảng cuối trang); helpers.py tạo mẫu thử
-├── docs/                   # USAGE, INTEGRATION, TROUBLESHOOTING, RULES, BENCHMARK, ARCHITECTURE, SECURITY-MODEL, MAINTAINING, ROADMAP
+├── docs/                   # USAGE, INTEGRATION, TROUBLESHOOTING, RULES, BENCHMARK, ARCHITECTURE, THREAT_MODEL, SECURITY-MODEL, MAINTAINING, ROADMAP
 ├── benchmark/              # danh sách SHA-256 bộ dữ liệu sạch + kết quả đo thô (không chứa mẫu)
 ├── Dockerfile              # image chạy bằng user thường; base image, thư viện, unrar đều pin (digest/hash)
 ├── requirements.txt        # lock có hash (uv pip compile) – runtime + yara; requirements-dev.txt thêm công cụ dev

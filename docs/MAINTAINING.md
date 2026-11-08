@@ -59,6 +59,7 @@ trước khi commit.
 | Luật, cách chấm điểm | `docs/RULES.md` | CONTRIBUTING |
 | Số liệu đo | `docs/BENCHMARK.md` (README chỉ giữ 1 đoạn tóm tắt) | README |
 | Chính sách báo lỗ hổng | `SECURITY.md` | README, CONTRIBUTING |
-| Mô hình bảo mật, chuỗi cung ứng, xác minh bản phát hành | `docs/SECURITY-MODEL.md` | SECURITY.md |
+| Mô hình đe dọa, bất biến "không bao giờ SẠCH khi chưa quét đủ", mã lý do | `docs/THREAT_MODEL.md` | SECURITY.md, SECURITY-MODEL.md |
+| Chuỗi cung ứng, xác minh bản phát hành | `docs/SECURITY-MODEL.md` | SECURITY.md |
 | Giấy phép bên thứ ba | `THIRD_PARTY_NOTICES.md` | README, CONTRIBUTING |
 | Việc của người giữ repo | file này | CONTRIBUTING |

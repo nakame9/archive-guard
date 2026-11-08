@@ -154,14 +154,18 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 {"schema_version": 1, "version": "0.17.1", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
  "engines": {…}, "isolation": null,
- "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […], "files": […]}]}
+ "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […],
+              "incomplete_reasons": [{"code": "MEMBER_ENCRYPTED", "where": "a.zip > b.exe", "detail": "…"}],
+              "files": […]}]}
 ```
 
 - `schema_version` (hiện là `1`): chỉ tăng khi một trường bị đổi tên, xóa hoặc đổi nghĩa. Thêm trường mới thì giữ
   nguyên, nên công cụ đọc báo cáo cứ bỏ qua trường lạ là tương thích. Test `tests/test_cli.py` khóa các trường của bản 1.
 - `rules_version`: mã 12 ký tự **tự sinh từ nội dung bộ luật**. Cùng bộ luật thì cùng mã trên mọi máy;
   `rules_components` cho biết phần nào đã đổi. Danh sách mã băm cập nhật hằng tuần nên mã này cũng đổi hằng tuần.
-- `complete` / `incomplete`: có phần nào chưa kiểm tra được không, và cụ thể là phần nào.
+- `complete` / `incomplete`: có phần nào chưa kiểm tra được không, và cụ thể là phần nào (chuỗi để đọc).
+- `incomplete_reasons` (thêm sau 0.17.1): cùng các phần đó, dạng `{code, where, detail}` để máy xử lý; danh sách mã
+  ở [THREAT_MODEL.md](THREAT_MODEL.md#mã-lý-do-chưa-quét-đủ). Mã chỉ được thêm, không đổi nghĩa.
 - `sandbox` (mỗi báo cáo): các lớp sandbox worker đã bật; `isolation` (đầu file): cấu hình cô lập, `null` khi `--no-isolate`.
 - `worker_error`: lý do worker thất bại (nếu có).
 - Mỗi phát hiện trong `files[].findings`: `rule`, `severity`, `category`, `title`, `detail`, `engine`,

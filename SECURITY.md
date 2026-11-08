@@ -38,7 +38,7 @@ PGP, hãy mở một báo cáo riêng ngắn để xin khóa; khóa (nếu có) 
 - Thiếu sandbox ở nơi tài liệu đã ghi là không có (Windows, seccomp trên ARM, Landlock trên kernel cũ) và trạng thái
   báo đúng điều đó.
 - Kết luận sai khi worker **đã** bị khai thác – trừ khi cách khai thác là lỗ hổng mới
-  ([giới hạn của cô lập](docs/SECURITY-MODEL.md#cô-lập-bảo-vệ-cái-gì-không-bảo-vệ-cái-gì)).
+  ([nếu parser bị khai thác](docs/THREAT_MODEL.md#6-nếu-parser-bị-rce-thì-kẻ-tấn-công-làm-được-gì)).
 - Lỗ hổng của `unrar`, 7-Zip, ClamAV, Python: báo cho dự án đó; báo cả ở đây nếu ArchiveGuard làm chúng dễ bị khai
   thác hơn.
 
@@ -57,6 +57,8 @@ Quá các mốc trên mà chưa có phản hồi: nhắc lại trong cùng báo 
 
 ## Tài liệu liên quan
 
-- [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md): cô lập bảo vệ gì, dữ liệu gửi ra ngoài, chuỗi cung ứng,
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): kẻ tấn công kiểm soát gì, worker đọc/kết nối được gì, parser bị
+  khai thác thì sao, vượt ngân sách thì kết luận gì, mã lý do "chưa quét đủ".
+- [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md): dữ liệu gửi ra ngoài, chuỗi cung ứng,
   **cách xác minh bản phát hành**, lịch sử CVE của công cụ bên ngoài.
 - [docs/USAGE.md](docs/USAGE.md#cô-lập-và-sandbox-mặc-định): lớp sandbox nào có trên hệ điều hành nào.

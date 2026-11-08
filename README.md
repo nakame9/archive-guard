@@ -90,7 +90,8 @@ hai mặt (debugger, kiểm thử xâm nhập, hook bàn phím) **10,5%**, NGUY 
 | Đưa vào GitHub Actions, GitLab CI, pre-commit | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
 | Gặp lỗi, mã thoát 4, sandbox không bật | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
 | Cách chấm điểm, các lớp phát hiện, thêm luật | [docs/RULES.md](docs/RULES.md) |
-| Mô hình bảo mật, chuỗi cung ứng, xác minh bản phát hành | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) |
+| Mô hình đe dọa: kẻ tấn công kiểm soát gì, sandbox chặn được gì | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |
+| Chuỗi cung ứng, xác minh bản phát hành | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) |
 | Hiểu code: module, luồng quét, muốn sửa X thì sửa ở đâu | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Định hướng sắp tới · lịch sử thay đổi | [docs/ROADMAP.md](docs/ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) |
 

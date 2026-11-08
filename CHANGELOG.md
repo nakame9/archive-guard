@@ -7,6 +7,21 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Bảo mật
+- **Lỗi khi kiểm tra cấu trúc ZIP không còn bị nuốt thành SẠCH:** trước đây một số lỗi ở bước tìm entry bị giấu/vùng
+  dữ liệu chồng nhau bị bỏ qua im lặng (kết luận SẠCH), số khác làm crash cả lần quét; giờ đều là CHƯA QUÉT ĐỦ
+  (`STRUCTURE_UNCHECKED`).
+- **Process chính kiểm tra báo cáo của worker** (`isolate.check_report`): báo cáo cụt, sai kiểu, thiếu trường, không
+  có file nào, hoặc tự mâu thuẫn (còn phần chưa quét mà kết luận SẠCH) → lỗi (mã 3), không bao giờ SẠCH.
+
+### Thêm
+- Trường JSON `incomplete_reasons`: mỗi phần chưa kiểm tra được kèm mã lý do `{code, where, detail}` (danh sách mã
+  trong `docs/THREAT_MODEL.md`); `incomplete` giữ nguyên. `schema_version` vẫn là 1.
+- `docs/THREAT_MODEL.md`: kẻ tấn công kiểm soát gì, parser chạy với quyền gì, worker đọc/kết nối được gì trên từng hệ
+  điều hành, parser bị khai thác thì làm được gì, API ngoài lỗi thì sao, vượt ngân sách thì kết luận gì.
+- `tests/test_failure_paths.py`: tiêm 10 loại lỗi vào từng parser (ZIP, TAR, 7z, RAR – ở đầu và giữa chừng), bước
+  kiểm tra cấu trúc ZIP, heuristic, YARA, ClamAV, và 8 dạng báo cáo worker không hợp lệ; bất biến: không bao giờ SẠCH.
+
 ## [0.17.1] – 2026-11-08
 
 Bản đầu tiên được gắn tag và phát hành (0.17.0 chỉ tồn tại trên nhánh `main`, chưa từng có tag `v0.17.0`).
