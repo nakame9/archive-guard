@@ -163,3 +163,12 @@ def test_pe_without_appended_archive_is_not_unpacked():
     pe = make_pe([(".rdata", b"7z\xbc\xaf\x27\x1c" + bytes(58), 0x40000040)])
     report = scan(pe, "7z.dll")
     assert report.verdict == "clean" and len(report.files) == 1 and not report.incomplete
+
+
+def test_stray_zip_end_signature_in_pe_is_not_a_zip():
+    # PE sạch tình cờ chứa PK\\x05\\x06 với "danh mục" giả 1,3 GB (gặp thật ở Squirrel-Mono.exe trong bộ benign):
+    # không được coi là ZIP, nếu không ngân sách cạn và cả gói bị dừng quét
+    fake_eocd = b"PK\x05\x06" + bytes(4) + (7).to_bytes(2, "little") * 2 + (1_342_451_712).to_bytes(4, "little")
+    pe = make_pe([(".text", b"\xc3" * 64 + fake_eocd + bytes(6), 0x60000020)])
+    report = scan(pe, "Squirrel.exe")
+    assert report.verdict == "clean" and len(report.files) == 1 and not report.incomplete

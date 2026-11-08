@@ -143,6 +143,31 @@ def _pe_overlay(data: bytes) -> int | None:
         return None
 
 
+def has_trailing_zip(f) -> bool:
+    """f (đã mở, seek được) kết thúc bằng một ZIP thật, kể cả khi có dữ liệu khác phía trước.
+
+    Không dùng zipfile.is_zipfile: nó chỉ dò chuỗi PK\\x05\\x06, vốn xuất hiện ngẫu nhiên trong file PE sạch (vd.
+    Squirrel-Mono.exe) và kéo theo một "danh mục" giả hàng GB. Ở đây đòi danh mục (PK\\x01\\x02) nằm ngay trước EOCD.
+    """
+    f.seek(0, os.SEEK_END)
+    size = f.tell()
+    base = max(0, size - 65536 - 22)
+    f.seek(base)
+    tail = f.read()
+    i = tail.rfind(b"PK\x05\x06")
+    if i < 0 or len(tail) < i + 22:
+        return False
+    count, end = struct.unpack_from("<HI", tail, i + 10)[0], i
+    cd_size = struct.unpack_from("<I", tail, i + 12)[0]
+    if tail[i - 20:i - 16] == b"PK\x06\x07" and tail[i - 76:i - 72] == b"PK\x06\x06":  # ZIP64
+        cd_size, end, count = struct.unpack_from("<Q", tail, i - 76 + 40)[0], i - 76, 1
+    start = base + end - cd_size
+    if count == 0 or start < 0:
+        return False
+    f.seek(start)
+    return f.read(4) == b"PK\x01\x02"
+
+
 def embedded_archive(data: bytes, kind: str) -> tuple[str, bytes] | None:
     """File nén nằm sau dữ liệu khác (SFX, polyglot, vài byte rác ở đầu): 7-Zip/unzip vẫn mở được nên phải quét.
 
@@ -151,7 +176,7 @@ def embedded_archive(data: bytes, kind: str) -> tuple[str, bytes] | None:
     """
     if kind in ARCHIVE_KINDS:
         return None
-    if zipfile.is_zipfile(io.BytesIO(data)):
+    if has_trailing_zip(io.BytesIO(data)):
         return "zip", data
     # ponytail: chỉ dò RAR/7z ở overlay PE và file nhị phân lạ; text/script/PDF chứa chữ ký nén chưa được xét
     start = _pe_overlay(data) if kind == "pe" else 1 if kind == "unknown" else None

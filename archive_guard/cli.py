@@ -7,7 +7,6 @@ import os
 import re
 import sys
 import time
-import zipfile
 from pathlib import Path
 
 if sys.version_info >= (3, 11):
@@ -16,7 +15,7 @@ else:  # Python 3.10
     import tomli as tomllib
 
 from . import __version__, engines, isolate, malwarebazaar, sandbox
-from .extract import archive_kind
+from .extract import archive_kind, has_trailing_zip
 from .rules import CATEGORIES, SEVERITY_NAME
 from .scanner import VERDICTS, Report, Scanner
 
@@ -161,8 +160,8 @@ def _targets(paths):
                 continue
             try:
                 with f.open("rb") as fh:
-                    # zipfile.is_zipfile dò danh mục ở cuối file: bắt cả ZIP có byte rác ở đầu, SFX dạng ZIP
-                    is_archive = archive_kind(fh.read(512)) is not None or zipfile.is_zipfile(fh)
+                    # bắt cả ZIP có byte rác ở đầu, SFX dạng ZIP (danh mục nằm ở cuối file)
+                    is_archive = archive_kind(fh.read(512)) is not None or has_trailing_zip(fh)
             except OSError:  # file bị khóa…
                 continue
             if is_archive:
