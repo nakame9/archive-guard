@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import time
+import traceback
 from pathlib import Path
 
 if sys.version_info >= (3, 11):
@@ -212,7 +213,7 @@ def _print_report(report, show_all, paint):
         print("  (Không phát hiện dấu hiệu nguy hiểm – không có nghĩa là chắc chắn an toàn.)")
 
 
-def main(argv=None) -> int:
+def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="archiveguard",
         description="Quét file nén (ZIP, RAR, 7z, TAR, GZ…) tìm dấu hiệu trojan, keylogger, worm, ransomware…",
@@ -274,17 +275,15 @@ def main(argv=None) -> int:
     ap.add_argument("--no-yara", action="store_true", help="không dùng YARA")
     ap.add_argument("--no-clamav", action="store_true", help="không dùng ClamAV")
     ap.add_argument("--no-color", action="store_true", help="tắt màu")
+    ap.add_argument("--debug", action="store_true",
+                    help="in traceback đầy đủ khi gặp lỗi ngoài dự kiến và toàn bộ stderr của worker lỗi "
+                         "(kèm khi báo lỗi; không in mật khẩu hay khóa API)")
     ap.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
-    config_path = _apply_config(ap, argv)
-    args = ap.parse_args(argv)
+    return ap
 
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # cmd Windows + tiếng Việt
-    color = not args.no_color and sys.stdout.isatty() and "NO_COLOR" not in os.environ
-    if color and os.name == "nt":
-        os.system("")  # bật mã màu ANSI trên cmd Windows đời cũ
-    paint = (lambda s, c: f"\033[{c}m{s}\033[0m") if color else (lambda s, c: s)
 
+def _check_args(ap, args):
+    """Tổ hợp tham số không hợp lệ → ap.error (mã 2 của argparse), trước khi làm bất cứ việc gì."""
     if not args.paths and not args.update_hashes and not args.update_db:
         ap.error("cần ít nhất một file/thư mục để quét, hoặc --update-hashes / --update-db")
     if args.no_isolate and (args.isolate or args.worker_timeout or args.worker_memory or args.no_sandbox
@@ -294,19 +293,15 @@ def main(argv=None) -> int:
         ap.error("--no-sandbox và --require-sandbox mâu thuẫn nhau")
     if args.worker_memory and not isolate.MEMORY_SUPPORTED:
         ap.error("--worker-memory chỉ hỗ trợ Linux và Windows")
-    use_worker = not args.no_isolate and not args._worker
-    request = {}
-    if args._worker:  # mật khẩu và yêu cầu sandbox được truyền qua stdin, không lộ trên dòng lệnh
-        request = json.load(sys.stdin)
-        args.password += request.get("passwords", [])
-    hard_timeout = args.worker_timeout or args.timeout + 30
     for extra in args.yara + args.hashes + args.allowlist:
         if not extra.exists():
             ap.error(f"không tìm thấy {extra}")
-    vt_key = os.environ.get("VT_API_KEY", "")
-    if args.virustotal and not vt_key:
+    if args.virustotal and not os.environ.get("VT_API_KEY"):
         ap.error("--virustotal cần biến môi trường VT_API_KEY (khóa API miễn phí tại virustotal.com)")
-    vt_state = {"left": args.vt_limit, "seen": {}, "off": False}
+
+
+def _run_updates(args) -> int | None:
+    """--update-db / --update-hashes. Trả mã thoát nếu phải dừng ở đây, None nếu còn file cần quét."""
     if args.update_db:
         print(f"Tải danh sách mã băm đã ký từ {malwarebazaar.DB_URL} …")
         try:
@@ -315,8 +310,6 @@ def main(argv=None) -> int:
             print(f"Lỗi cập nhật: {e}", file=sys.stderr)
             return 3
         print(f"Xong: chữ ký hợp lệ, cache {malwarebazaar.cache_path()} có {total} mã băm.")
-        if not args.paths and not args.update_hashes:
-            return 0
     if args.update_hashes:
         print(f"Cập nhật mã băm từ MalwareBazaar vào {malwarebazaar.cache_path()} …")
         try:
@@ -325,8 +318,10 @@ def main(argv=None) -> int:
             print(f"Lỗi cập nhật: {e}", file=sys.stderr)
             return 3
         print(f"Xong: thêm {added} mã băm mới, cache có {total} mẫu.")
-        if not args.paths:
-            return 0
+    return None if args.paths else 0
+
+
+def _scanner(ap, args, request) -> Scanner:
     try:
         scanner = Scanner(passwords=args.password, max_depth=args.max_depth, max_file_mb=args.max_size,
                           max_total_mb=args.max_total, timeout=args.timeout, max_archive_mb=args.max_archive_size,
@@ -340,28 +335,107 @@ def main(argv=None) -> int:
             scanner.clamav = lambda path, timeout: []
         else:
             scanner.clamav = lambda path, timeout: engines.clamav_scan(path, timeout, commands=("clamscan",))
+    return scanner
+
+
+def _print_lines(text):
+    """In nhiều dòng ra stderr (vd. stderr của worker), lọc ký tự điều khiển từng dòng."""
+    print("\n".join(_safe(line) for line in text.splitlines()), file=sys.stderr)
+
+
+def _scan_in_process(scanner, path, args):
+    """--no-isolate và chính worker. Trả Report, hoặc None nếu lỗi (đã in ra stderr)."""
+    try:
+        return scanner.scan_path(path)
+    except OSError as e:
+        print(f"\nLỗi: không đọc được {path}: {e.strerror or e}", file=sys.stderr)
+    except Exception as e:  # lỗi ngoài dự kiến: báo lỗi (mã 3), tuyệt đối không để lọt thành "sạch"
+        print(f"\nLỗi khi quét {path}: {type(e).__name__}: {e}", file=sys.stderr)
+        if args.debug:
+            traceback.print_exc()
+    return None
+
+
+def _write_json(args, scanner, reports, use_worker, hard_timeout, sandbox_status, limits):
+    for r in reports:
+        r["disposition"] = api.disposition(r["verdict"], args.fail_on)
+    settings = limits | {"fail_on": args.fail_on, "require_sandbox": args.require_sandbox,
+                         "sandbox": use_worker and not args.no_sandbox, "isolate": use_worker,
+                         "clamav": not args.no_clamav, "yara_enabled": not args.no_yara, "yara": args.yara,
+                         "hashes": args.hashes, "allowlist": args.allowlist}
+    args.json.write_text(json.dumps({"schema_version": SCHEMA_VERSION, "version": __version__,
+                                     "rules_version": scanner.rules_version,
+                                     "rules_components": scanner.rules_components,
+                                     "engines": scanner.engines,
+                                     "isolation": {"hard_timeout": hard_timeout, "memory_mb": args.worker_memory,
+                                                   "sandbox": not args.no_sandbox} if use_worker else None,
+                                     "sandbox": sandbox_status,
+                                     # worker không tính: đọc file allowlist/YARA sau khi sandbox đã chặn
+                                     "policy": None if args._worker else api.policy(settings),
+                                     "reports": reports},
+                                    ensure_ascii=False, indent=2), encoding="utf-8")
+    if not args._worker:
+        print(f"\nĐã ghi báo cáo JSON: {args.json}")
+
+
+def _worker_sandbox(args, request) -> dict | None:
+    """Worker tự áp sandbox. None = thiếu lớp bắt buộc khi có --require-sandbox (đã in lỗi, phải dừng)."""
+    status = sandbox.apply([p.resolve() for p in args.paths], os.environ.get("TMPDIR") or os.getcwd(),
+                           outer=request.get("outer"))
+    lacking = sandbox.missing(status)
+    if request.get("require_sandbox") and lacking:
+        print(f"Lỗi: --require-sandbox nhưng worker thiếu: {', '.join(lacking)} ({status})", file=sys.stderr)
+        return None
+    return status
+
+
+def _banner(args, scanner, use_worker, hard_timeout, config_path) -> str:
+    return (f"ArchiveGuard {__version__} | luật {scanner.rules_version} | "
+            + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items())
+            + (f" | cô lập: bật (timeout cứng {hard_timeout:g}s"
+               + (f", RAM {args.worker_memory} MB" if args.worker_memory else "")
+               + (", không sandbox" if args.no_sandbox else ", sandbox") + ")"
+               if use_worker else " | cô lập: TẮT (parser chạy trong process chính)")
+            + (f" | cấu hình: {config_path}" if config_path else "")
+            + (f" | allowlist: {len(scanner.allowlist)} mục" if scanner.allowlist else ""))
+
+
+def main(argv=None) -> int:
+    ap = _parser()
+    config_path = _apply_config(ap, argv)
+    args = ap.parse_args(argv)
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # cmd Windows + tiếng Việt
+    color = not args.no_color and sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    if color and os.name == "nt":
+        os.system("")  # bật mã màu ANSI trên cmd Windows đời cũ
+    paint = (lambda s, c: f"\033[{c}m{s}\033[0m") if color else (lambda s, c: s)
+
+    _check_args(ap, args)
+    use_worker = not args.no_isolate and not args._worker
+    request = {}
+    if args._worker:  # mật khẩu và yêu cầu sandbox được truyền qua stdin, không lộ trên dòng lệnh
+        request = json.load(sys.stdin)
+        args.password += request.get("passwords", [])
+    hard_timeout = args.worker_timeout or args.timeout + 30
+    vt_key = os.environ.get("VT_API_KEY", "")
+    vt_state = {"left": args.vt_limit, "seen": {}, "off": False}
+    if (args.update_db or args.update_hashes) and (code := _run_updates(args)) is not None:
+        return code
+    scanner = _scanner(ap, args, request)
     sandbox_status = None
     if request.get("sandbox"):  # áp SAU khi nạp bộ luật (tin cậy), TRƯỚC khi đọc byte nào của file cần quét
-        sandbox_status = sandbox.apply([p.resolve() for p in args.paths], os.environ.get("TMPDIR") or os.getcwd(),
-                                       outer=request.get("outer"))
-        lacking = sandbox.missing(sandbox_status)
-        if request.get("require_sandbox") and lacking:
-            print(f"Lỗi: --require-sandbox nhưng worker thiếu: {', '.join(lacking)} ({sandbox_status})",
-                  file=sys.stderr)
+        sandbox_status = _worker_sandbox(args, request)
+        if sandbox_status is None:
             return 3
     if not args._worker:
-        print(f"ArchiveGuard {__version__} | luật {scanner.rules_version} | "
-              + " | ".join(f"{k}: {v}" for k, v in scanner.engines.items())
-              + (f" | cô lập: bật (timeout cứng {hard_timeout:g}s"
-                 + (f", RAM {args.worker_memory} MB" if args.worker_memory else "")
-                 + (", không sandbox" if args.no_sandbox else ", sandbox") + ")"
-                 if use_worker else " | cô lập: TẮT (parser chạy trong process chính)")
-              + (f" | cấu hình: {config_path}" if config_path else "")
-              + (f" | allowlist: {len(scanner.allowlist)} mục" if scanner.allowlist else ""))
+        print(_banner(args, scanner, use_worker, hard_timeout, config_path))
     limits = {"max_depth": args.max_depth, "max_size": args.max_size, "max_total": args.max_total,
               "timeout": args.timeout, "max_archive_size": args.max_archive_size}
     worker_args = api.worker_args(**limits, yara=args.yara, hashes=args.hashes, allowlist=args.allowlist,
-                                  use_yara=not args.no_yara, use_clamav=not args.no_clamav, show_all=args.all)
+                                  use_yara=not args.no_yara, use_clamav=not args.no_clamav, show_all=args.all,
+                                  debug=args.debug)
 
     reports, failed, errors, worker_sandbox = [], False, 0, None
     started, slowest = time.monotonic(), 0.0
@@ -370,34 +444,28 @@ def main(argv=None) -> int:
         if use_worker:
             report, output, failure, timed_out = api.scan_isolated(
                 path, worker_args, args.password, hard_timeout, args.worker_memory, sandbox=not args.no_sandbox,
-                require_sandbox=args.require_sandbox, use_clamav=not args.no_clamav, clamav_timeout=args.timeout)
+                require_sandbox=args.require_sandbox, use_clamav=not args.no_clamav, clamav_timeout=args.timeout,
+                debug=args.debug)
             # worker có thể đã bị khai thác: không cho in ký tự điều khiển terminal (\r\n của Windows là bình thường)
             print(_safe(output.replace("\r\n", "\n")), end="")
             if failure:  # worker treo/crash/hết RAM/kết quả hỏng: CHƯA QUÉT ĐỦ, không bao giờ là SẠCH
                 _print_report(failure, args.all, paint)
+                if args.debug:
+                    _print_lines(f"--- stderr của worker ({path}) ---\n{report['worker_error']}")
                 failed = failed or not timed_out  # crash/lỗi → mã 3; hết giờ → CHƯA QUÉT ĐỦ (mã 4)
                 errors += not timed_out
             else:
                 worker_sandbox = worker_sandbox or report.get("sandbox")
-            if args.virustotal:
-                _virustotal(report, vt_key, vt_state, paint)
-            reports.append(report)
-            slowest = max(slowest, time.monotonic() - t0)
-            continue
-        try:
-            report = scanner.scan_path(path)
-        except OSError as e:
-            print(f"\nLỗi: không đọc được {path}: {e.strerror or e}", file=sys.stderr)
-            failed, errors = True, errors + 1
-            continue
-        except Exception as e:  # lỗi ngoài dự kiến: báo lỗi (mã 3), tuyệt đối không để lọt thành "sạch"
-            print(f"\nLỗi khi quét {path}: {type(e).__name__}: {e}", file=sys.stderr)
-            failed, errors = True, errors + 1
-            continue
-        reports.append(report.to_dict())
-        _print_report(report, args.all, paint)
+        else:
+            result = _scan_in_process(scanner, path, args)
+            if result is None:
+                failed, errors = True, errors + 1
+                continue
+            report = result.to_dict()
+            _print_report(result, args.all, paint)
         if args.virustotal and not args._worker:
-            _virustotal(reports[-1], vt_key, vt_state, paint)
+            _virustotal(report, vt_key, vt_state, paint)
+        reports.append(report)
         slowest = max(slowest, time.monotonic() - t0)
 
     if not reports and not failed and not args._worker:
@@ -406,25 +474,7 @@ def main(argv=None) -> int:
         layers = {k: v for k, v in worker_sandbox.items() if isinstance(v, str)}
         print(paint("\nSandbox của worker: " + "; ".join(f"{k}: {v}" for k, v in layers.items()), "2"))
     if args.json:
-        for r in reports:
-            r["disposition"] = api.disposition(r["verdict"], args.fail_on)
-        settings = limits | {"fail_on": args.fail_on, "require_sandbox": args.require_sandbox,
-                             "sandbox": use_worker and not args.no_sandbox, "isolate": use_worker,
-                             "clamav": not args.no_clamav, "yara_enabled": not args.no_yara, "yara": args.yara,
-                             "hashes": args.hashes, "allowlist": args.allowlist}
-        args.json.write_text(json.dumps({"schema_version": SCHEMA_VERSION, "version": __version__,
-                                         "rules_version": scanner.rules_version,
-                                         "rules_components": scanner.rules_components,
-                                         "engines": scanner.engines,
-                                         "isolation": {"hard_timeout": hard_timeout, "memory_mb": args.worker_memory,
-                                                       "sandbox": not args.no_sandbox} if use_worker else None,
-                                         "sandbox": sandbox_status,
-                                         # worker không tính: đọc file allowlist/YARA sau khi sandbox đã chặn
-                                         "policy": None if args._worker else api.policy(settings),
-                                         "reports": reports},
-                                        ensure_ascii=False, indent=2), encoding="utf-8")
-        if not args._worker:
-            print(f"\nĐã ghi báo cáo JSON: {args.json}")
+        _write_json(args, scanner, reports, use_worker, hard_timeout, sandbox_status, limits)
     # --fail-on: chỉ những kết luận được chọn mới làm lệnh thất bại; lỗi (mã 3) thì luôn thất bại
     worst = max((r["verdict"] for r in reports if r["verdict"] in args.fail_on), key=VERDICTS.index, default="clean")
     code = 3 if failed and worst in ("clean", "incomplete") else EXIT_CODE[worst]

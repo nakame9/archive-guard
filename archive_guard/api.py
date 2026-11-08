@@ -42,7 +42,8 @@ def policy(settings: dict) -> dict:
 
 
 def worker_args(*, max_depth=5, max_size=256, max_total=4096, timeout=300, max_archive_size=4096,
-                yara=(), hashes=(), allowlist=(), use_yara=True, use_clamav=True, show_all=False) -> list:
+                yara=(), hashes=(), allowlist=(), use_yara=True, use_clamav=True, show_all=False,
+                debug=False) -> list:
     """Tham số dòng lệnh cho worker (đường dẫn tuyệt đối: worker chạy trong thư mục tạm)."""
     args = ["--max-depth", str(max_depth), "--max-size", str(max_size), "--max-total", str(max_total),
             "--timeout", str(timeout), "--max-archive-size", str(max_archive_size)]
@@ -50,11 +51,11 @@ def worker_args(*, max_depth=5, max_size=256, max_total=4096, timeout=300, max_a
     args += [x for h in hashes for x in ("--hashes", str(Path(h).resolve()))]
     args += [x for a in allowlist for x in ("--allowlist", str(Path(a).resolve()))]
     return args + [f for f, on in (("--all", show_all), ("--no-yara", not use_yara),
-                                   ("--no-clamav", not use_clamav)) if on]
+                                   ("--no-clamav", not use_clamav), ("--debug", debug)) if on]
 
 
 def scan_isolated(path, args, passwords, hard_timeout, memory_mb=None, *, sandbox=True, require_sandbox=False,
-                  use_clamav=True, clamav_timeout=300):
+                  use_clamav=True, clamav_timeout=300, debug=False):
     """Quét một file trong worker. LUÔN trả báo cáo: worker lỗi, treo, trả kết quả không hợp lệ → CHƯA QUÉT ĐỦ.
 
     Trả (báo cáo dict, output của worker, Report lỗi hoặc None, có phải hết giờ không). Dùng chung cho CLI và
@@ -63,7 +64,8 @@ def scan_isolated(path, args, passwords, hard_timeout, memory_mb=None, *, sandbo
     # clamdscan --fdpass chạy ở process chính: chỉ chuyển file descriptor cho clamd, không phân tích file
     clamd = engines.clamav_scan(path, clamav_timeout, commands=("clamdscan",)) if use_clamav else None
     report, output, error, timed_out = isolate.scan(path, args, passwords, hard_timeout, memory_mb,
-                                                     use_sandbox=sandbox, require_sandbox=require_sandbox, clamd=clamd)
+                                                     use_sandbox=sandbox, require_sandbox=require_sandbox, clamd=clamd,
+                                                     debug=debug)
     if report is not None:  # isolate.scan đã kiểm tra; kiểm lại để MỌI nguồn báo cáo đi qua cùng một cổng
         try:
             isolate.check_report(report)

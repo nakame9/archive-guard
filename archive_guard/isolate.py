@@ -190,7 +190,7 @@ def add_known_malware(report: dict, index: int, findings: list) -> None:
 
 
 def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | None = None,
-         use_sandbox: bool = True, require_sandbox: bool = False, clamd=None):
+         use_sandbox: bool = True, require_sandbox: bool = False, clamd=None, debug: bool = False):
     """Quét một file trong worker. Trả (report dict hoặc None, stdout của worker, lỗi hoặc None, hết_giờ).
 
     clamd: kết quả clamdscan do process cha chạy (list Finding), gộp vào báo cáo SAU khi worker trả về; None = worker
@@ -220,7 +220,8 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
             data = json.loads(out.read_text(encoding="utf-8"))
             (report,) = data["reports"]  # đúng một báo cáo cho đúng một file
         except (OSError, ValueError, KeyError, TypeError):
-            last = (stderr.strip().splitlines() or ["không có thông báo lỗi"])[-1]
+            lines = stderr.strip().splitlines() or ["không có thông báo lỗi"]
+            last = "\n".join(lines[-200:]) if debug else lines[-1]  # --debug: cả traceback, không chỉ dòng cuối
             return None, stdout, f"worker lỗi (mã thoát {code}): {last}", False
         try:
             check_report(report)

@@ -114,3 +114,29 @@ def test_directory_scan_skips_fifo_instead_of_hanging(tmp_path):
     finally:  # code cũ đang chặn ở open(): mở đầu ghi để nhả nó ra
         if t.is_alive():
             os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+
+
+def test_debug_prints_traceback_for_unexpected_error(tmp_path, monkeypatch, capsys):
+    from archive_guard import scanner as scanner_mod
+
+    def boom(self, path):
+        raise RuntimeError("lỗi giả")
+    monkeypatch.setattr(scanner_mod.Scanner, "scan_path", boom)
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    assert main([str(tmp_path / "a.zip"), "--no-isolate", "--no-clamav"]) == 3
+    assert "Traceback" not in capsys.readouterr().err  # mặc định: một dòng gọn
+    assert main([str(tmp_path / "a.zip"), "--no-isolate", "--no-clamav", "--debug"]) == 3
+    err = capsys.readouterr().err
+    assert "Traceback" in err and "RuntimeError: lỗi giả" in err
+
+
+def test_debug_prints_whole_worker_stderr(tmp_path, monkeypatch, capsys):
+    from archive_guard import isolate
+    stderr = "Traceback (most recent call last):\n  File \"x.py\", line 1\nValueError: hỏng"
+    monkeypatch.setattr(isolate, "run", lambda *a, **k: (1, "", stderr, False))
+    (tmp_path / "a.zip").write_bytes(make_zip({"a.txt": b"hi"}))
+    assert main([str(tmp_path / "a.zip"), "--no-clamav"]) == 3
+    assert "Traceback" not in capsys.readouterr().err  # mặc định: chỉ dòng cuối, nằm trong báo cáo
+    assert main([str(tmp_path / "a.zip"), "--no-clamav", "--debug"]) == 3
+    err = capsys.readouterr().err
+    assert "stderr của worker" in err and "Traceback" in err and 'File "x.py"' in err

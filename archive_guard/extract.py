@@ -88,9 +88,6 @@ class Budget:
         self.bytes += n
         self.check()
 
-    def remaining(self):
-        return self.max_bytes - self.bytes
-
     def check(self):
         if self.bytes > self.max_bytes:
             raise BudgetExceeded("bytes")
