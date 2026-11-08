@@ -153,8 +153,8 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 ```json
 {"schema_version": 1, "version": "0.17.1", "rules_version": "2e803535739a",
  "rules_components": {"heuristic": "…", "yara": "…", "hashes": "…", "all": "2e803535739a"},
- "engines": {…}, "isolation": null,
- "reports": [{"target": "…", "verdict": "incomplete", "complete": false, "incomplete": […],
+ "engines": {…}, "isolation": null, "policy": {"id": "cda8d5ca5a4b", "settings": {…}},
+ "reports": [{"target": "…", "verdict": "incomplete", "disposition": "review", "complete": false, "incomplete": […],
               "incomplete_reasons": [{"code": "MEMBER_ENCRYPTED", "where": "a.zip > b.exe", "detail": "…"}],
               "files": […]}]}
 ```
@@ -164,6 +164,10 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 - `rules_version`: mã 12 ký tự **tự sinh từ nội dung bộ luật**. Cùng bộ luật thì cùng mã trên mọi máy;
   `rules_components` cho biết phần nào đã đổi. Danh sách mã băm cập nhật hằng tuần nên mã này cũng đổi hằng tuần.
 - `complete` / `incomplete`: có phần nào chưa kiểm tra được không, và cụ thể là phần nào (chuỗi để đọc).
+- `disposition` (thêm sau 0.17.1): hành động gợi ý theo `--fail-on` – `allow` (kết luận không nằm trong
+  `--fail-on`), `review` (CHƯA QUÉT ĐỦ), `quarantine` (ĐÁNG NGỜ), `reject` (NGUY HIỂM). `allow` nghĩa là được chấp
+  nhận theo policy hiện tại, không phải bảo đảm an toàn.
+- `policy` (đầu file, thêm sau 0.17.1): `id` – mã 12 ký tự tự sinh từ cấu hình hiệu lực – và `settings` đã dùng.
 - `incomplete_reasons` (thêm sau 0.17.1): cùng các phần đó, dạng `{code, where, detail}` để máy xử lý; danh sách mã
   ở [THREAT_MODEL.md](THREAT_MODEL.md#mã-lý-do-chưa-quét-đủ). Mã chỉ được thêm, không đổi nghĩa.
 - `sandbox` (mỗi báo cáo): các lớp sandbox worker đã bật; `isolation` (đầu file): cấu hình cô lập, `null` khi `--no-isolate`.

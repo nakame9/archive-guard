@@ -1,4 +1,4 @@
-# Tích hợp vào CI/CD
+# Tích hợp vào CI/CD và backend
 
 Chọn ngưỡng thất bại bằng `--fail-on` ([USAGE.md](USAGE.md#--fail-on-ngưỡng-thất-bại-của-pipeline)). Khuyến nghị cho
 pipeline: `--fail-on malicious,incomplete`, tức chặn thứ chắc chắn xấu **và** thứ chưa kiểm tra được; để người
@@ -106,10 +106,42 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop AL
 Image đã có `unrar`, mọi thành phần được pin (xem [SECURITY-MODEL.md](SECURITY-MODEL.md#chuỗi-cung-ứng)). Đây là cách duy nhất có sandbox file/mạng cho runner
 Windows (Docker Desktop/WSL2).
 
+## Tích hợp vào backend
+
+Dùng API thư viện thay vì gọi dòng lệnh: `archive_guard.scan_file()` **luôn** quét trong worker có sandbox (không có
+cách tắt cô lập qua API) và trả báo cáo như một phần tử `reports` của JSON, thêm `disposition` và `policy`.
+
+```python
+from archive_guard import scan_file
+
+report = scan_file(path_in_quarantine, require_sandbox=True)   # Linux x86_64; nơi khác: chạy trong Docker
+match report["disposition"]:
+    case "allow": ...        # được chấp nhận theo policy hiện tại – KHÔNG phải bảo đảm an toàn
+    case "review": ...       # CHƯA QUÉT ĐỦ: người xem xét, không bao giờ coi là sạch
+    case "quarantine": ...   # ĐÁNG NGỜ
+    case "reject": ...       # NGUY HIỂM
+```
+
+**Hợp đồng tích hợp** – mẫu chạy được, có test: [`examples/upload_gate.py`](../examples/upload_gate.py).
+
+| Quy tắc | Vì sao |
+|---|---|
+| Quét một **bản sao** trong thư mục cách ly do backend sở hữu (tên ngẫu nhiên, chỉ đọc), không quét đường dẫn người dùng còn ghi được | Chống TOCTOU: file bị thay giữa lúc quét và lúc dùng |
+| Xử lý **đúng bản đã quét**: chuyển bằng `os.replace` (cùng ổ đĩa), không mở lại file gốc; đối chiếu `files[0].sha256` với mã băm bạn tự tính khi chép | Bảo đảm thứ được dùng là thứ đã được kiểm tra |
+| Không bao giờ nhận `review` (CHƯA QUÉT ĐỦ) như `allow` | File có mật khẩu, hỏng, quá lớn, worker lỗi đều rơi vào đây |
+| Không tin đuôi file hay `Content-Type`: quét mọi upload | ArchiveGuard tự nhận diện định dạng theo nội dung |
+| Ghi `policy.id`, `rules_version`, `incomplete_reasons` cùng quyết định | Biết vì sao một file được nhận/chặn, so sánh được giữa các phiên bản. ArchiveGuard không tự lưu log: nơi lưu và thời hạn là việc của bạn (tên file trong archive có thể nhạy cảm) |
+| Bước giải nén thật vẫn phải chống path traversal, giới hạn dung lượng | ArchiveGuard không bảo vệ trình giải nén bạn dùng sau đó |
+| Production: `require_sandbox=True` trên Linux x86_64, hoặc chạy trong image Docker | macOS/Windows không giới hạn được việc worker đọc file ([THREAT_MODEL.md](THREAT_MODEL.md#4-worker-có-thể-đọc-file-bên-ngoài-không)) |
+
+`policy.id`: mã 12 ký tự tự sinh từ cấu hình hiệu lực (`fail_on`, ngân sách, sandbox, nội dung file allowlist/YARA/mã
+băm thêm vào). Cùng cấu hình trên hai máy thì cùng mã; đổi một ngưỡng là đổi mã.
+
 ## Kết quả cho người xem lại
 
-- `--json FILE`: báo cáo đầy đủ; `reports[].verdict`, `reports[].files[].findings[]` (mã luật, `confidence`, mã
-  MITRE ATT&CK). Định dạng ổn định theo `schema_version`.
+- `--json FILE`: báo cáo đầy đủ; `reports[].verdict`, `reports[].disposition`, `reports[].incomplete_reasons`,
+  `reports[].files[].findings[]` (mã luật, `confidence`, mã MITRE ATT&CK; luật YARA kèm chuỗi khớp và offset),
+  `policy`. Định dạng ổn định theo `schema_version`.
 - `--stats FILE`: số liệu Prometheus cho Grafana ([USAGE.md](USAGE.md#--stats-số-liệu-cho-prometheusgrafana)).
 - Báo nhầm lặp lại với một công cụ bạn tin dùng: thêm SHA-256 vào `--allowlist` (đưa file allowlist vào Git cùng
   pipeline) **và** mở issue "Báo nhầm" để luật được sửa.

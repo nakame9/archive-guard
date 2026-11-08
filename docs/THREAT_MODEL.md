@@ -77,6 +77,9 @@ token, `HOME`), mật khẩu qua stdin, hard timeout kill cả cây process, gi�
 | Chặn syscall nguy hiểm (ptrace, mount, bpf, io_uring…) | ✅ x86_64 | ❌ | ❌ |
 | Giới hạn RAM `--worker-memory` | ✅ | ❌ | ✅ Job Object |
 
+Windows: dự án đã quyết định **không** tự làm sandbox AppContainer; để có sandbox file và mạng, chạy ArchiveGuard
+trong Docker Desktop hoặc WSL2 ([ROADMAP.md](ROADMAP.md#quyết-định-đã-chốt)).
+
 `--no-isolate` chạy mọi parser **ngay trong process chính, không sandbox**: chỉ dùng với dữ liệu tin cậy.
 `--require-sandbox` từ chối quét (mã 3) khi worker không giới hạn được truy cập file **và** chặn được mạng – hiện
 chỉ đạt trên Linux x86_64 có Landlock.

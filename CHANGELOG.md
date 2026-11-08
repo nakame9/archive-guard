@@ -15,6 +15,14 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
   có file nào, hoặc tự mâu thuẫn (còn phần chưa quét mà kết luận SẠCH) → lỗi (mã 3), không bao giờ SẠCH.
 
 ### Thêm
+- **API thư viện `archive_guard.scan_file()`** (M3): luôn quét trong worker có sandbox, không có cách tắt cô lập qua
+  API; trả báo cáo kèm `disposition` và `policy`. CLI và API dùng chung một đường quét (`api.scan_isolated`).
+- Trường JSON `disposition` mỗi báo cáo (`allow` / `review` / `quarantine` / `reject`, theo `--fail-on`) và `policy`
+  đầu file (`id` 12 ký tự tự sinh từ cấu hình hiệu lực, tính file allowlist/YARA/mã băm theo nội dung).
+- Evidence cho luật YARA: tên chuỗi khớp và offset lần khớp đầu (không chép nội dung khớp) trong `detail`.
+- Integration contract cho backend (`docs/INTEGRATION.md#tích-hợp-vào-backend`) và mẫu chạy được
+  `examples/upload_gate.py`: quét bản sao cách ly, chỉ chuyển bản đã quét khi `allow`, đối chiếu SHA-256.
+- Quyết định Windows: không tự làm AppContainer, khuyến nghị Docker/WSL2 (`docs/ROADMAP.md`).
 - Trường JSON `incomplete_reasons`: mỗi phần chưa kiểm tra được kèm mã lý do `{code, where, detail}` (danh sách mã
   trong `docs/THREAT_MODEL.md`); `incomplete` giữ nguyên. `schema_version` vẫn là 1.
 - `docs/THREAT_MODEL.md`: kẻ tấn công kiểm soát gì, parser chạy với quyền gì, worker đọc/kết nối được gì trên từng hệ

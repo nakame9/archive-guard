@@ -29,8 +29,17 @@ thuật (ngưỡng báo nhầm…) được giải quyết bằng số liệu tr
 | ✅ | **M0 – Vá lỗi đã xác nhận** (0.17.1) | File nén gắn sau dữ liệu khác, treo ở FIFO, kết quả ClamAV qua worker, hard timeout với `setsid`, lỗi bảng mã ClamAV, trạng thái sandbox macOS | Mỗi lỗi có test hồi quy thất bại trên code cũ |
 | ✅ | **M1 – Ranh giới tin cậy** (chưa phát hành) | [THREAT_MODEL.md](THREAT_MODEL.md); kiểm thử đường lỗi (tiêm lỗi vào mọi parser/engine, báo cáo worker không hợp lệ); mã lý do `incomplete_reasons` | Bất biến "bước bắt buộc chưa xong → không SẠCH" được test cho mọi parser và engine |
 | | **M2 – Toàn vẹn archive** (tuần 3–6) | Byte coverage cho ZIP (hiểu hết / còn vùng chưa giải thích → ≥ CHƯA QUÉT ĐỦ / mâu thuẫn → ≥ ĐÁNG NGỜ); đọc nội dung entry bị giấu; so sánh `zipfile` với 7-Zip (pin phiên bản), phân loại bất đồng theo hậu quả; evasion corpus có kết quả mong đợi; fuzzing liên tục (ClusterFuzzLite + atheris); bộ phần mềm sạch thứ 4 | Mọi mẫu evasion ≠ SẠCH; tỷ lệ "còn vùng chưa giải thích" trên bộ sạch được công bố và ngưỡng chọn theo đó |
-| | **M3 – Tích hợp an toàn** | Hàm thư viện `scan_file()` cô lập mặc định; kết quả có `coverage`, `sandbox`, dấu vân tay policy, evidence, `disposition` gợi ý (không có trường boolean "an toàn"); integration contract; quyết định sandbox Windows (AppContainer hay khuyến nghị Docker/WSL) | Backend mẫu chạy được theo contract; `--require-sandbox` cùng ý nghĩa trên mọi hệ điều hành |
+| ✅ | **M3 – Tích hợp an toàn** (chưa phát hành) | `archive_guard.scan_file()` luôn cô lập; `disposition` gợi ý (không có trường boolean "an toàn"); dấu vân tay `policy`; evidence YARA (chuỗi khớp + offset); integration contract + backend mẫu `examples/upload_gate.py`; quyết định Windows (bên dưới). Trường `coverage` riêng để M2 thêm cùng phép đo byte coverage | Backend mẫu chạy được theo contract (có test); `--require-sandbox` cùng ý nghĩa trên mọi hệ điều hành |
 | | **M4 – Bảo trì** | README tiếng Anh; workflow mã băm thôi commit vào `main` (chỉ Release `hash-db` có chữ ký); mở lại backlog bên dưới theo số liệu recall | Phát hành và cập nhật dữ liệu không cần commit tay |
+
+## Quyết định đã chốt
+
+| Quyết định | Lý do |
+|---|---|
+| **Windows: không tự làm sandbox AppContainer; khuyến nghị chạy trong Docker Desktop/WSL2** | AppContainer qua `ctypes` buộc phải cấp quyền ACL cho thư mục cài Python và site-packages của người dùng (sửa quyền file trên máy họ), dễ vỡ theo từng cách cài Python; Docker/WSL2 cho đúng sandbox Linux đã được test. `--require-sandbox` trên Windows tiếp tục từ chối quét |
+| M3 làm trước M2 (theo quyết định của người giữ repo, 2026-11-09) | API tích hợp không phụ thuộc phép đo byte coverage; `coverage` sẽ được thêm vào báo cáo khi M2 xong, theo quy tắc chỉ thêm trường |
+| Không có trường boolean "an toàn"; `allow` = "được chấp nhận theo policy hiện tại" | Một giá trị đúng/sai dễ bị hiểu thành giấy phép dùng file |
+| Scanner xuất bằng chứng, không tự lưu log | Tên file trong archive có thể nhạy cảm; nơi lưu và thời hạn là việc của hệ thống tích hợp |
 
 ## Backlog (hoãn đến sau M2, thứ tự theo số liệu recall)
 
@@ -55,6 +64,7 @@ thuật (ngưỡng báo nhầm…) được giải quyết bằng số liệu tr
 
 | Bản | Nội dung |
 |---|---|
+| chưa phát hành | M3: `scan_file()`, `disposition`, `policy`, evidence YARA, integration contract, `examples/upload_gate.py` |
 | chưa phát hành | M1: THREAT_MODEL.md, kiểm thử đường lỗi, `incomplete_reasons`, process chính kiểm tra báo cáo worker, sửa lỗi kiểm tra cấu trúc ZIP bị nuốt thành SẠCH |
 | 0.17.1 | M0: file nén gắn sau dữ liệu khác (SFX, byte rác ở đầu), treo ở FIFO, kết quả ClamAV gộp ở process chính, hard timeout với process cháu `setsid`, trạng thái sandbox macOS |
 | 0.17.0 | Macro VBA (giải nén mã nguồn), template Office từ xa, LNK, PowerShell mã hóa, cấu trúc ZIP, URLhaus, VirusTotal |

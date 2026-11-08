@@ -8,6 +8,7 @@ Tài liệu cho người sửa code: mỗi module làm gì, dữ liệu đi qua 
 archive-guard/
 ├── archive_guard/          # mã nguồn (gói Python)
 │   ├── cli.py              # dòng lệnh: đọc tham số, in báo cáo, ghi JSON, mã thoát
+│   ├── api.py              # API thư viện scan_file(); đường quét trong worker dùng chung với CLI; disposition, policy
 │   ├── isolate.py          # chạy worker (mặc định): hard timeout, giới hạn CPU/RAM, dọn cây process
 │   ├── sandbox.py          # sandbox hệ điều hành worker tự áp: Landlock, seccomp, network namespace, sandbox-exec
 │   ├── scanner.py          # điều phối: đệ quy file nén, gọi các lớp phát hiện, chấm điểm, rules_version
@@ -17,6 +18,7 @@ archive-guard/
 │   ├── malwarebazaar.py    # tải mã băm theo họ từ MalwareBazaar
 │   ├── benchmark.py        # đo precision/recall/tỷ lệ báo nhầm trên dữ liệu có nhãn
 │   └── data/               # known_bad.txt, malwarebazaar.txt (cập nhật hằng tuần), rules/*.yar
+├── examples/               # upload_gate.py: backend mẫu theo integration contract
 ├── tests/                  # mỗi file test một mảng (xem bảng cuối trang); helpers.py tạo mẫu thử
 ├── docs/                   # USAGE, INTEGRATION, TROUBLESHOOTING, RULES, BENCHMARK, ARCHITECTURE, THREAT_MODEL, SECURITY-MODEL, MAINTAINING, ROADMAP
 ├── benchmark/              # danh sách SHA-256 bộ dữ liệu sạch + kết quả đo thô (không chứa mẫu)
@@ -31,6 +33,8 @@ Phụ thuộc chỉ đi **một chiều**, từ trên xuống:
 
 ```mermaid
 flowchart TD
+    cli --> api
+    api --> isolate
     cli --> isolate
     cli --> sandbox
     isolate --> sandbox
@@ -149,6 +153,8 @@ Thêm định dạng mới = thêm một hàm như vậy, đăng ký trong `iter
 | `tests/test_archives.py` | Định dạng nén, mật khẩu, định dạng chưa hỗ trợ, `CHƯA QUÉT ĐỦ` |
 | `tests/test_budget.py` | Chống archive bomb: ngân sách, streaming, giới hạn entry, timeout engine |
 | `tests/test_cli.py` | Mã thoát, hợp đồng JSON `schema_version` 1, `rules_version` |
+| `tests/test_api.py` | `scan_file()` luôn cô lập, `disposition`, `policy`, backend mẫu `examples/upload_gate.py` |
+| `tests/test_failure_paths.py` | Tiêm lỗi vào mọi parser/engine, báo cáo worker không hợp lệ: không bao giờ SẠCH |
 | `tests/test_isolate.py` | Worker treo/crash/hết RAM, kill cả cây process |
 | `tests/test_sandbox.py` | Trạng thái sandbox khớp thực tế, `--require-sandbox`, lọc ký tự điều khiển, kết quả worker hỏng |
 | `tests/test_hashes.py` | Cập nhật mã băm (API giả lập) |
