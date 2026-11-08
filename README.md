@@ -7,18 +7,22 @@
 Công cụ dòng lệnh quét **file nén** (ZIP, RAR, 7z, TAR, GZ, BZ2, XZ, Office Open XML…) tìm dấu hiệu **trojan,
 keylogger, worm, ransomware, stealer, backdoor/RAT, downloader** – *trước khi* bạn giải nén hay mở bất cứ thứ gì.
 
-> ⚠️ Công cụ **hỗ trợ phát hiện**, không thay thế antivirus. SẠCH nghĩa là *không thấy dấu hiệu*, không phải bảo
-> đảm an toàn. Xem [Khi nào không nên dùng](#khi-nào-không-nên-dùng).
+> ⚠️ ArchiveGuard **không cam kết file an toàn**. Nó cho biết đã kiểm tra những gì, phát hiện những gì, và quá trình
+> kiểm tra có hoàn tất, đáng tin cậy hay không. Công cụ bổ sung cho antivirus, không thay thế. Xem
+> [Khi nào không nên dùng](#khi-nào-không-nên-dùng) và [mô hình đe dọa](docs/THREAT_MODEL.md).
 
 ## Tính năng chính
 
 - **Không giải nén ra đĩa**, đi vào file nén lồng nhau với **ngân sách tài nguyên chung** chống archive bomb.
-- **Parser chạy trong worker có sandbox** (Linux: Landlock + seccomp + chặn mạng; macOS: sandbox-exec), hard timeout,
-  giới hạn CPU/RAM. Có image Docker cứng hóa.
+- **Parser chạy trong worker có sandbox** (Linux: Landlock + seccomp + chặn mạng; macOS: sandbox-exec chặn ghi và
+  mạng), hard timeout, giới hạn CPU/RAM. Process chính không tin kết quả của worker: tự gộp phát hiện của ClamAV và
+  từ chối báo cáo sai cấu trúc. Có image Docker cứng hóa.
 - **Nhiều lớp phát hiện:** tên file giả mạo, packer, chuỗi hành vi (gắn mã MITRE ATT&CK), macro Office, shortcut
   `.lnk`, PowerShell mã hóa, cấu trúc ZIP bất thường, mã băm MalwareBazaar + URLhaus, YARA (kèm luật signature-base),
   ClamAV và VirusTotal (tùy chọn).
-- **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, hỏng, quá lớn, định dạng chưa hỗ trợ → `CHƯA QUÉT ĐỦ`.
+- **Không bao giờ báo SẠCH khi chưa quét hết:** file có mật khẩu, hỏng, quá lớn, định dạng chưa hỗ trợ, file nén giấu
+  sau dữ liệu khác → được giải nén hoặc `CHƯA QUÉT ĐỦ`, kèm mã lý do trong JSON. Bất biến này được kiểm thử bằng cách
+  tiêm lỗi vào từng parser và engine.
 - **Vận hành:** file cấu hình, `--fail-on` cho pipeline, `--allowlist`, số liệu Prometheus, cập nhật mã băm có chữ ký.
 
 ## Cài đặt
