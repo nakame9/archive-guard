@@ -7,7 +7,7 @@
 # - base image theo digest (Dependabot mở PR khi python:3.13-slim có bản mới)
 # - thư viện Python theo requirements.txt có hash (--require-hashes)
 # - unrar theo phiên bản + SHA-256, tải từ snapshot.debian.org (URL không đổi nội dung theo thời gian)
-FROM python:3.13-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 # unrar để đọc NỘI DUNG file RAR (Debian trixie, non-free). Cập nhật: đổi 4 dòng dưới theo bản mới trên
 # https://snapshot.debian.org/package/unrar-nonfree/ và kiểm tra lại SHA-256. unrar có lịch sử CVE: xem docs/SECURITY-MODEL.md.
