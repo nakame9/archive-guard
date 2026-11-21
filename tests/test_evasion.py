@@ -62,16 +62,27 @@ SEVEN_ZIP = shutil.which("7zz") or shutil.which("7z")
 
 
 def _seven_zip_members(path):
-    """{tên: sha256 nội dung} mà 7-Zip giải nén ra (1 tầng). None nếu 7-Zip từ chối file."""
+    """{tên: {sha256 nội dung}} mà 7-Zip giải nén ra (1 tầng). None nếu 7-Zip từ chối file.
+
+    Tên trùng: `7z e -so <tên>` nối nội dung MỌI entry cùng tên theo thứ tự danh sách → cắt lại theo `Size` từng entry.
+    """
     listing = subprocess.run([SEVEN_ZIP, "l", "-slt", "-ba", str(path)], capture_output=True, timeout=60)
     if listing.returncode:
         return None
-    names = [line[7:] for line in listing.stdout.decode("utf-8", "replace").splitlines()
-             if line.startswith("Path = ")]
+    entries, name = [], None  # [(tên, kích thước)] theo thứ tự 7-Zip liệt kê
+    for line in listing.stdout.decode("utf-8", "replace").splitlines():
+        if line.startswith("Path = "):
+            name = line[7:]
+        elif line.startswith("Size = ") and name is not None:
+            entries.append((name, int(line[7:] or 0)))
+            name = None
     out = {}
-    for n in names:
+    for n in dict.fromkeys(n for n, _ in entries):
         data = subprocess.run([SEVEN_ZIP, "e", "-so", "-y", str(path), n], capture_output=True, timeout=60).stdout
-        out.setdefault(n, set()).add(hashlib.sha256(data).hexdigest())
+        pos = 0
+        for size in (s for m, s in entries if m == n):
+            out.setdefault(n, set()).add(hashlib.sha256(data[pos:pos + size]).hexdigest())
+            pos += size
     return out
 
 
