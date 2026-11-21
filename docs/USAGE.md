@@ -173,6 +173,15 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
   ở [THREAT_MODEL.md](THREAT_MODEL.md#mã-lý-do-chưa-quét-đủ). Mã chỉ được thêm, không đổi nghĩa.
 - `sandbox` (mỗi báo cáo): các lớp sandbox worker đã bật; `isolation` (đầu file): cấu hình cô lập, `null` khi `--no-isolate`.
 - `worker_error`: lý do worker thất bại (nếu có).
+- `engines`, `rules_version`, `rules_components` trong mỗi báo cáo (thêm sau 0.17.1): engine worker thực sự đã chạy và
+  phiên bản luật nó dùng – thông tin worker tự khai, không phải bằng chứng.
+- `files[].coverage` (chỉ file ZIP, thêm sau 0.17.1): độ phủ **cấu trúc** – `bytes`, `explained`, `unexplained_bytes`
+  và tối đa 20 khoảng `[đầu, cuối)` trong `unexplained` không thuộc bản ghi ZIP hợp lệ nào (local header, dữ liệu,
+  data descriptor, danh mục, ZIP64, EOCD + comment, phần PE của file SFX); `{"error": …}` nếu không đo được. Hiện chỉ
+  ghi nhận, **chưa** đổi kết luận. Phủ 100% không có nghĩa nội dung đã được kiểm tra hay file an toàn: nội dung
+  comment và extra field nằm trong vùng "đã giải thích" nhưng không được quét.
+- Entry ZIP bị giấu khỏi danh mục (`ARCHIVE.HIDDEN_ENTRY`) được quét như một file con có đuôi `[ẩn]` khi giải mã được
+  không mơ hồ; không được thì CHƯA QUÉT ĐỦ (`HIDDEN_UNSCANNED`).
 - Mỗi phát hiện trong `files[].findings`: `rule`, `severity`, `category`, `title`, `detail`, `engine`,
   `confidence` (`low` = chỉ là khả năng, `medium`, `high`) và `attack` (mã kỹ thuật MITRE ATT&CK, có thể rỗng).
   Hai trường cuối thêm ở bản 0.12.0, `schema_version` vẫn là 1. Một file SẠCH vẫn có thể liệt kê phát hiện

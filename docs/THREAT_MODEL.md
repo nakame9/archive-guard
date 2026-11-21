@@ -55,7 +55,11 @@ trong lúc** giải nén (sau mỗi khúc 1 MB, mỗi entry):
 | Tỷ lệ nén của một file con ≥ 50 MB (cố định) | 100:1 | `ARCHIVE.BOMB_RATIO` + `MEMBER_BOMB` |
 
 Không tin kích thước khai báo: luôn đọc tối đa `giới hạn + 1` byte. ZIP có vùng dữ liệu chồng nhau
-(`ARCHIVE.OVERLAP`) hoặc entry có local header nhưng bị giấu khỏi danh mục (`ARCHIVE.HIDDEN_ENTRY`) được báo riêng.
+(`ARCHIVE.OVERLAP`) hoặc entry có local header nhưng bị giấu khỏi danh mục (`ARCHIVE.HIDDEN_ENTRY`) được báo riêng;
+nội dung entry ẩn được quét khi giải mã được không mơ hồ, không thì `HIDDEN_UNSCANNED`. Độ phủ cấu trúc ZIP
+(`files[].coverage`) cho biết byte nào không thuộc bản ghi hợp lệ nào – hiện chỉ ghi nhận (0.19); từ M2b byte chưa
+giải thích được sẽ làm kết luận ≥ CHƯA QUÉT ĐỦ. Lỗ hổng đã biết (`tests/evasion.py`): nội dung comment và extra field
+hợp lệ về cấu trúc nhưng không được quét.
 File nén nằm sau dữ liệu khác (ZIP có byte rác ở đầu, ZIP/7z/RAR gắn sau PE) cũng được giải nén (0.17.1).
 
 Giới hạn còn lại: py7zr và rarfile nạp **toàn bộ** danh mục 7z/RAR khi mở – danh mục cực lớn tốn RAM trước khi ngân
@@ -180,6 +184,7 @@ không đổi nghĩa:
 | `ARCHIVE_UNREADABLE` | file nén hỏng hoặc parser lỗi |
 | `STRUCTURE_UNCHECKED` | không kiểm tra được cấu trúc ZIP (entry giấu, vùng chồng nhau) |
 | `RULES_UNAVAILABLE` | file luật YARA đã chọn (đi kèm hoặc `--yara`) không biên dịch được; các luật còn lại vẫn chạy |
+| `HIDDEN_UNSCANNED` | entry ZIP bị giấu khỏi danh mục nhưng không giải mã được không mơ hồ (data descriptor, mã hóa, ZIP64, phương thức lạ, sai CRC), hoặc hơn 20 entry ẩn |
 | `MEMBER_TOO_LARGE`, `MEMBER_ENCRYPTED`, `MEMBER_BOMB`, `MEMBER_UNREADABLE` | một file con không được đọc |
 | `WORKER_ERROR`, `WORKER_TIMEOUT` | worker lỗi / bị dừng vì hard timeout |
 

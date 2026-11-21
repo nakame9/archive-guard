@@ -92,6 +92,10 @@ def run(malicious, benign, scanner: Scanner, log=print) -> dict:
             "verdicts": {name: verdict_of(report, keep) for name, keep in LAYERS.items()},
             "rules": sorted({x.rule for f in report.files for x in f.findings if f.verdict != "clean"}),
             "files_scanned": len(report.files),
+            # độ phủ cấu trúc ZIP (0.19, chỉ ghi nhận): số ZIP trong mẫu, số ZIP còn byte chưa giải thích được
+            "zips": sum(f.coverage is not None for f in report.files),
+            "zips_unexplained": sum(bool(f.coverage) and f.coverage.get("unexplained_bytes", 1) > 0
+                                    for f in report.files),
         })
         log(f"  [{i}/{len(samples)}] {label:<9} {rows[-1]['verdicts']['Tất cả']:<10} {path.name}")
     active = [n for n in LAYERS if any(LEVEL[r["verdicts"][n]] for r in rows) or n in
@@ -118,6 +122,12 @@ def run(malicious, benign, scanner: Scanner, log=print) -> dict:
         g: {t: metrics([r for r in rows if r["label"] == "benign" and r["family"] == g], "Tất cả", t)["fpr"]
             for t in ("suspicious", "malicious")} | {"n": sum(r["label"] == "benign" and r["family"] == g for r in rows)}
         for g in sorted({r["family"] for r in rows if r["label"] == "benign"})}
+    # Tỷ lệ mẫu SẠCH có ZIP còn byte chưa giải thích được: căn cứ để bật quy tắc M2b (byte lạ → CHƯA QUÉT ĐỦ)
+    zipped = [r for r in rows if r["label"] == "benign" and r["zips"]]
+    k = sum(r["zips_unexplained"] > 0 for r in zipped)
+    result["coverage"] = {"benign_with_zip": len(zipped), "benign_unexplained": k,
+                          "rate": k / len(zipped) if zipped else None, "rate_ci": wilson(k, len(zipped)) if zipped else None,
+                          "examples": [Path(r["path"]).name for r in zipped if r["zips_unexplained"]][:20]}
     # Luật nào gây báo nhầm / luật nào bắt được mẫu độc mà không cần mã băm → dữ liệu để tinh chỉnh
     result["fp_rules"] = Counter(x for r in rows if r["label"] == "benign"
                                  and r["verdicts"]["Tất cả"] != "clean" for x in r["rules"]).most_common()
@@ -141,6 +151,11 @@ def to_markdown(res: dict) -> str:
            f"Mẫu: {res['samples']} ({res['malicious']} độc, {res['benign']} sạch); "
            f"quét chưa đầy đủ: {res['incomplete']}; thời gian/mẫu: trung vị {t['median']} s, "
            f"p95 {t['p95']} s, max {t['max']} s", ""]
+    cov = res.get("coverage") or {}
+    if cov.get("benign_with_zip"):
+        out += [f"Độ phủ cấu trúc ZIP (mẫu sạch): {cov['benign_unexplained']}/{cov['benign_with_zip']} mẫu có ZIP còn "
+                f"byte chưa giải thích được – {_pct(cov['rate'], cov['rate_ci'])}"
+                + (f"; vd. {', '.join(cov['examples'][:5])}" if cov["examples"] else ""), ""]
     for t, title in (("suspicious", "Dương tính khi kết luận ≥ ĐÁNG NGỜ"),
                      ("malicious", "Dương tính khi kết luận = NGUY HIỂM")):
         out += [f"### {title}", "",

@@ -12,6 +12,7 @@ from . import engines, malwarebazaar, rules
 from .extract import (
     ARCHIVE_KINDS,
     LOCKED,
+    MAX_HIDDEN,
     TOO_BIG,
     ArchiveError,
     Budget,
@@ -20,8 +21,10 @@ from .extract import (
     archive_kind,
     embedded_archive,
     iter_members,
+    read_hidden,
     unsupported_container,
     zip_anomalies,
+    zip_coverage,
 )
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
@@ -52,6 +55,7 @@ REASONS = {
     "WORKER_ERROR": "worker crash, lỗi hoặc trả kết quả không hợp lệ",
     "WORKER_TIMEOUT": "worker bị dừng vì hard timeout",
     "RULES_UNAVAILABLE": "file luật YARA đã chọn (đi kèm hoặc --yara) không biên dịch được",
+    "HIDDEN_UNSCANNED": "entry ZIP bị giấu khỏi danh mục nhưng không giải mã được không mơ hồ (data descriptor, mã hóa…)",
 }
 
 
@@ -98,6 +102,7 @@ class FileResult:
     note: str = ""
     allowlisted: str = ""  # mục allowlist đã khớp; phát hiện bị bỏ qua nằm trong suppressed
     suppressed: list = field(default_factory=list)
+    coverage: dict | None = None  # độ phủ cấu trúc (chỉ ZIP) – extract.zip_coverage
 
     @property
     def score(self):
@@ -113,7 +118,8 @@ class FileResult:
                 "score": self.score, "verdict": self.verdict, "note": self.note,
                 "findings": [f.to_dict() for f in self.findings],
                 **({"allowlisted": self.allowlisted, "suppressed": [f.to_dict() for f in self.suppressed]}
-                   if self.allowlisted else {})}
+                   if self.allowlisted else {}),
+                **({"coverage": self.coverage} if self.coverage is not None else {})}
 
 
 @dataclass
@@ -380,8 +386,8 @@ class Scanner:
         report.skip(f"BUDGET_{e.kind.upper()}", display, f"dừng – {f.title}")
 
     @staticmethod
-    def _zip_structure(src) -> list | None:
-        """Phát hiện về cấu trúc ZIP; None = KHÔNG kiểm tra được (người gọi phải ghi CHƯA QUÉT ĐỦ)."""
+    def _zip_structure(src) -> tuple[list, list] | None:
+        """(phát hiện về cấu trúc ZIP, các entry ẩn); None = KHÔNG kiểm tra được (người gọi ghi CHƯA QUÉT ĐỦ)."""
         try:
             overlaps, hidden = zip_anomalies(src)
         except Exception:  # code của ta chạy trên dữ liệu không tin cậy: lỗi gì cũng là "chưa kiểm tra", không là sạch
@@ -394,8 +400,32 @@ class Scanner:
         if hidden:
             out.append(Finding("ARCHIVE.HIDDEN_ENTRY", HIGH, "evasion",
                                "File có trong ZIP nhưng bị giấu khỏi danh mục – mỗi trình giải nén thấy nội dung khác",
-                               ", ".join(hidden[:5])))
-        return out
+                               ", ".join(h.name for h in hidden[:5])))
+        return out, hidden
+
+    def _scan_hidden(self, src, hidden, display, depth, res, report, budget):
+        """Quét nội dung entry ẩn khi giải mã được không mơ hồ; còn lại (và phần vượt MAX_HIDDEN) → CHƯA QUÉT ĐỦ."""
+        for h in hidden[:MAX_HIDDEN]:
+            child = f"{display} > {h.name} [ẩn]"
+            try:
+                data, why = read_hidden(src, h, self.max_file, budget)
+            except Exception as e:  # dữ liệu nén hỏng (zlib.error…): chưa kiểm tra được, không phải sạch
+                data, why = None, f"entry ẩn không giải nén được: {type(e).__name__}"
+            if data is not None:
+                self._scan(data, h.name, child, depth + 1, report, budget)
+            else:
+                report.files.append(FileResult(child, "?", h.size, note=why))
+                report.skip("HIDDEN_UNSCANNED", child, why)
+        if len(hidden) > MAX_HIDDEN:
+            self._not_checked(res, report, display, "HIDDEN_UNSCANNED", f"hơn {MAX_HIDDEN} entry ẩn, phần còn lại chưa quét")
+
+    @staticmethod
+    def _coverage(src) -> dict:
+        """Độ phủ cấu trúc ZIP – CHỈ ghi nhận (0.19), chưa đổi kết luận; lỗi khi đo cũng chỉ ghi lại."""
+        try:
+            return zip_coverage(src)
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"}
 
     def _walk(self, kind, src, name, display, depth, res, report, budget):
         if budget.stopped:
@@ -431,7 +461,9 @@ class Scanner:
                     self._not_checked(res, report, display, "STRUCTURE_UNCHECKED",
                                       "không kiểm tra được cấu trúc ZIP (entry bị giấu, vùng dữ liệu chồng nhau)")
                 else:
-                    res.findings += found
+                    res.findings += found[0]
+                    self._scan_hidden(src, found[1], display, depth, res, report, budget)
+                res.coverage = self._coverage(src)
         except BudgetExceeded as e:  # ném ra NGAY trong lúc giải nén, giữa chừng một file con
             self._stop(budget, e, res, report, display)
         except EncryptedArchive as e:

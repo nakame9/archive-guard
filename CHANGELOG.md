@@ -31,6 +31,19 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
   đã build được smoke test (CLI, luật YARA đi kèm, import API) trước khi ký.
 - Nâng `dnspython` 2.9.1 → 2.9.2 (CVE-2026-128089, dependency của công cụ dev).
 
+- **Quét nội dung entry ZIP bị giấu khỏi danh mục** (trước đây chỉ báo tên): khi kích thước có trong local header,
+  không mã hóa, stored/deflate và CRC khớp, entry được quét như file con `… > tên [ẩn]`; trường hợp khác (data
+  descriptor, mã hóa, ZIP64, sai CRC, hơn 20 entry ẩn) → CHƯA QUÉT ĐỦ với mã mới `HIDDEN_UNSCANNED`.
+
+### Thêm (M2a)
+- **Độ phủ cấu trúc ZIP** `files[].coverage`: byte nào thuộc bản ghi ZIP hợp lệ (local header, dữ liệu, data
+  descriptor khớp CRC, danh mục, ZIP64, EOCD + comment, phần PE của SFX), các khoảng còn lại. **Chỉ ghi nhận**, chưa đổi
+  kết luận; `benchmark` báo tỷ lệ mẫu sạch còn byte chưa giải thích được để chọn ngưỡng cho M2b.
+- **Evasion corpus** `tests/evasion.py`: 17 mẫu ZIP dựng lúc chạy test, mỗi mẫu có kết luận mong đợi; 2 mẫu chờ M2b
+  (byte rác cuối file, byte lạ giữa hai entry) và 2 lỗ hổng đã biết (payload trong comment, trong extra field) vẫn ra SẠCH.
+- Job CI `differential-7zip`: mọi thứ 7-Zip lấy ra từ corpus (tên + nội dung) phải đã được quét. Job `fuzz`: atheris
+  chạy 3 phút trên đường quét ZIP, kiểm tra không ném lỗi và SẠCH ⇒ quét trọn vẹn.
+
 ### Sửa
 - THREAT_MODEL nói rõ: engine tùy chọn chưa cài = tắt (hiện trong `engines`), đã cài mà lỗi = CHƯA QUÉT ĐỦ.
 
