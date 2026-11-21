@@ -51,6 +51,7 @@ REASONS = {
     "MEMBER_UNREADABLE": "file con không đọc được (hỏng, thiếu unrar/7-Zip…)",
     "WORKER_ERROR": "worker crash, lỗi hoặc trả kết quả không hợp lệ",
     "WORKER_TIMEOUT": "worker bị dừng vì hard timeout",
+    "RULES_UNAVAILABLE": "file luật YARA đã chọn (đi kèm hoặc --yara) không biên dịch được",
 }
 
 
@@ -237,8 +238,8 @@ class Scanner:
         # data/*.txt: known_bad.txt (EICAR) + malwarebazaar.txt do GitHub Actions cập nhật hằng tuần
         self.hashes = rules.load_hashes([*sorted(DATA_DIR.glob("*.txt")), *([cache] if cache.exists() else []),
                                          *hash_files])
-        self.yara, yara_status, yara_files = (engines.load_yara([DATA_DIR / "rules", *yara_paths])
-                                              if use_yara else ([], "tắt", []))
+        self.yara, yara_status, yara_files, self.yara_broken = (
+            engines.load_yara([DATA_DIR / "rules", *yara_paths]) if use_yara else ([], "tắt", [], []))
         self.use_clamav = use_clamav and engines.find_clamav() is not None
         self.clamav = engines.clamav_scan  # worker thay bằng kết quả clamdscan của process cha hoặc chỉ clamscan
         self.engines = {
@@ -277,6 +278,7 @@ class Scanner:
                             "tăng --timeout, hoặc dùng --no-clamav)")
             else:
                 report.files[0].findings += found
+        self._rules_unavailable(report)
         self._apply_allowlist(path, report)
         return report
 
@@ -306,7 +308,13 @@ class Scanner:
     def scan_bytes(self, data: bytes, name: str = "data") -> Report:
         report = Report(name)
         self._scan(data, name, name, 0, report, self._budget())
+        self._rules_unavailable(report)
         return report
+
+    def _rules_unavailable(self, report):
+        """File luật YARA đã chọn mà không biên dịch được → bộ luật không chạy đủ, không được báo SẠCH."""
+        for bad in self.yara_broken:
+            report.skip("RULES_UNAVAILABLE", "YARA", f"file luật không biên dịch được: {bad}")
 
     def _scan(self, src, name, display, depth, report, budget):
         """src: nội dung file (bytes) hoặc đường dẫn tới file nén gốc."""

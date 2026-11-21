@@ -20,12 +20,26 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
   (`STRUCTURE_UNCHECKED`).
 - **Process chính kiểm tra báo cáo của worker** (`isolate.check_report`): báo cáo cụt, sai kiểu, thiếu trường, không
   có file nào, hoặc tự mâu thuẫn (còn phần chưa quét mà kết luận SẠCH) → lỗi (mã 3), không bao giờ SẠCH.
+  Kiểm tra thêm: `complete` phải khớp `incomplete`, verdict từng file hợp lệ, kết luận chung không được nhẹ hơn file
+  nặng nhất bên trong.
+- **File luật YARA không biên dịch được không còn bị bỏ qua im lặng:** trước đây chỉ ghi vào trạng thái engine, kết
+  luận vẫn có thể là SẠCH; giờ là CHƯA QUÉT ĐỦ với mã mới `RULES_UNAVAILABLE`, các luật còn lại vẫn chạy. Thiếu
+  `yara-python` vẫn = YARA tắt.
+- **Giới hạn dữ liệu đọc từ worker:** báo cáo JSON > 64 MB → lỗi (`WORKER_ERROR`), không nạp vào RAM process chính;
+  stdout/stderr của worker giữ tối đa 16 MB. Dung lượng thư mục tạm của worker chưa bị giới hạn.
+- **Phát hành chỉ chạy sau khi lint, audit, test toàn bộ ma trận và docker đều qua trên đúng commit của tag**; wheel
+  đã build được smoke test (CLI, luật YARA đi kèm, import API) trước khi ký.
+- Nâng `dnspython` 2.9.1 → 2.9.2 (CVE-2026-128089, dependency của công cụ dev).
+
+### Sửa
+- THREAT_MODEL nói rõ: engine tùy chọn chưa cài = tắt (hiện trong `engines`), đã cài mà lỗi = CHƯA QUÉT ĐỦ.
 
 ### Thêm
 - `--debug`: in traceback đầy đủ khi gặp lỗi ngoài dự kiến (thay vì một dòng `Kiểu: thông báo`) và toàn bộ stderr của
   worker lỗi (thay vì dòng cuối). Mẫu báo lỗi trên GitHub hướng dẫn dán output này.
 - **API thư viện `archive_guard.scan_file()`** (M3): luôn quét trong worker có sandbox, không có cách tắt cô lập qua
   API; trả báo cáo kèm `disposition` và `policy`. CLI và API dùng chung một đường quét (`api.scan_isolated`).
+  Mỗi báo cáo từ worker mang thêm `engines`, `rules_version`, `rules_components` (engine thực sự đã chạy).
 - Trường JSON `disposition` mỗi báo cáo (`allow` / `review` / `quarantine` / `reject`, theo `--fail-on`) và `policy`
   đầu file (`id` 12 ký tự tự sinh từ cấu hình hiệu lực, tính file allowlist/YARA/mã băm theo nội dung).
 - Evidence cho luật YARA: tên chuỗi khớp và offset lần khớp đầu (không chép nội dung khớp) trong `detail`.

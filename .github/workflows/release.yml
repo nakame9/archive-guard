@@ -15,7 +15,14 @@ on:
 permissions: {}
 
 jobs:
+  checks:
+    # lint, audit, test toàn bộ ma trận, docker – chạy trên chính commit của tag; lỗi là không build, không phát hành
+    uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+
   build:
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,6 +52,23 @@ jobs:
           /tmp/sbom/bin/python -m pip uninstall -y pip  # pip của venv không phải dependency của ArchiveGuard
           cyclonedx-py environment /tmp/sbom/bin/python --pyproject pyproject.toml --mc-type application \
             --of JSON --output-reproducible -o "dist/archive_guard-$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])").cdx.json"
+      - name: Smoke test wheel đã cài (CLI ra ĐÁNG NGỜ, quét trọn vẹn, nạp được luật YARA đi kèm, import được API)
+        run: |
+          cd "$RUNNER_TEMP"
+          python3 -c "import zipfile; z = zipfile.ZipFile('hoadon.zip', 'w'); z.writestr('hoadon.pdf.exe', b'MZ' + bytes(64)); z.close()"
+          set +e
+          /tmp/sbom/bin/archiveguard hoadon.zip --no-clamav --json smoke.json
+          code=$?
+          set -e
+          test "$code" -eq 1 || { echo "mã thoát $code, cần 1"; exit 1; }
+          /tmp/sbom/bin/python -c "
+          import json
+          d = json.load(open('smoke.json', encoding='utf-8'))
+          r = d['reports'][0]
+          assert r['complete'], r['incomplete_reasons']
+          assert int(d['engines']['yara'].split()[0]) > 0, d['engines']
+          from archive_guard import scan_file
+          "
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist

@@ -14,11 +14,14 @@ _EXTERNALS = {"filename": "", "filepath": "", "extension": "", "filetype": "", "
 
 
 def load_yara(paths):
-    """Biên dịch từng file luật .yar/.yara; trả về (luật đã biên dịch, trạng thái, các file nạp được)."""
+    """Biên dịch từng file luật .yar/.yara; trả về (luật đã biên dịch, trạng thái, các file nạp được, file lỗi).
+
+    Thiếu yara-python = YARA tắt. File luật lỗi = bộ luật đã chọn không chạy đủ: người gọi phải ghi CHƯA QUÉT ĐỦ.
+    """
     try:
         import yara
     except ImportError:
-        return [], "chưa cài (pip install yara-python)", []
+        return [], "chưa cài (pip install yara-python)", [], []
     files = []
     for p in map(Path, paths):
         files += [p] if p.is_file() else sorted([*p.rglob("*.yar"), *p.rglob("*.yara")])
@@ -37,7 +40,7 @@ def load_yara(paths):
     if not files:
         compiled = []
     status = f"{len(loaded)} file luật"
-    return compiled, status + (f" (bỏ qua file lỗi: {'; '.join(bad)})" if bad else ""), loaded
+    return compiled, status + (f" (bỏ qua file lỗi: {'; '.join(bad)})" if bad else ""), loaded, bad
 
 
 def yara_scan(compiled, data: bytes, timeout: int = 60) -> list[Finding]:
