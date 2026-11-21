@@ -19,6 +19,9 @@ def test_scan_file_runs_in_sandboxed_worker_and_returns_decision(tmp_path):
     assert report["verdict"] == "clean" and report["disposition"] == "allow"
     assert report["sandbox"] is not None  # đã chạy trong worker, không phải trong process gọi
     assert len(report["policy"]["id"]) == 12 and report["files"][0]["sha256"]
+    # engine thực sự chạy và phiên bản luật đi tới người gọi API
+    assert report["engines"]["clamav"] == "tắt" and report["engines"]["heuristic"] == "bật"
+    assert len(report["rules_version"]) == 12 and report["rules_components"]["all"] == report["rules_version"]
 
 
 def test_scan_file_rejects_known_malware(tmp_path):

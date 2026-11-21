@@ -6,8 +6,10 @@ và **không** chặn được gì. Áp dụng cho nhánh `main` sau bản 0.17.
 [SECURITY-MODEL.md](SECURITY-MODEL.md). Cách báo lỗ hổng: [SECURITY.md](../SECURITY.md).
 
 **Bất biến cốt lõi** – mọi thay đổi code phải giữ: *nếu một bước bắt buộc không hoàn tất, kết luận không bao giờ là
-SẠCH.* Bước bắt buộc = đọc file, giải nén từng tầng, kiểm tra cấu trúc ZIP, heuristic, YARA, ClamAV (trừ khi
-`--no-clamav`), và worker trả báo cáo hợp lệ. Kiểm chứng tự động: `tests/test_failure_paths.py` (tiêm lỗi vào từng
+SẠCH.* Bước bắt buộc = đọc file, giải nén từng tầng, kiểm tra cấu trúc ZIP, heuristic, YARA và ClamAV **nếu
+engine đó đã được cài và không bị tắt**, và worker trả báo cáo hợp lệ. Engine tùy chọn chưa cài (`yara-python`,
+ClamAV) = tắt, hiện trong trường `engines` của JSON, không làm báo cáo thành CHƯA QUÉT ĐỦ; engine đã cài mà lỗi
+(ClamAV không chạy được, file luật YARA không biên dịch được) thì CHƯA QUÉT ĐỦ. Kiểm chứng tự động: `tests/test_failure_paths.py` (tiêm lỗi vào từng
 parser và engine), `tests/test_isolate.py` (worker crash/treo/bị kill), `tests/test_sandbox.py`.
 
 ## Các bên và ranh giới tin cậy
@@ -141,7 +143,7 @@ trên Linux x86_64 hoặc trong Docker với `--require-sandbox`.
 | VirusTotal (`--virustotal`) | 429 → chờ 60 s thử lại một lần; lỗi khác → dừng tra phần còn lại, in cảnh báo | Không đổi: VirusTotal chỉ **thêm** phát hiện, không bao giờ làm file thành SẠCH |
 | `--update-db` (Release `hash-db`) | Chữ ký sai, mất mạng, thiếu thư viện sigstore → mã 3, **giữ nguyên** cache cũ | Quét vẫn chạy với mã băm đi kèm gói + cache cũ |
 | `--update-hashes` (abuse.ch) | Lỗi một họ → bỏ qua họ đó; lỗi mọi truy vấn hoặc Auth-Key sai → mã 3, giữ cache cũ | Như trên |
-| ClamAV | Không chạy được, thiếu cơ sở dữ liệu, hết giờ → `CLAMAV_UNAVAILABLE` | **CHƯA QUÉT ĐỦ** (mã 4), trừ khi chạy `--no-clamav` |
+| ClamAV | Đã cài nhưng không chạy được, thiếu cơ sở dữ liệu, hết giờ → `CLAMAV_UNAVAILABLE` | **CHƯA QUÉT ĐỦ** (mã 4), trừ khi chạy `--no-clamav`. Chưa cài = tắt (`engines.clamav: "chưa cài"`), không ảnh hưởng kết luận |
 
 Quét **không cần mạng**: mã băm đi kèm gói, luật YARA, heuristic và ClamAV cục bộ đều chạy offline.
 
@@ -177,6 +179,7 @@ không đổi nghĩa:
 | `ENCRYPTED_LISTING` | danh sách file bị mã hóa |
 | `ARCHIVE_UNREADABLE` | file nén hỏng hoặc parser lỗi |
 | `STRUCTURE_UNCHECKED` | không kiểm tra được cấu trúc ZIP (entry giấu, vùng chồng nhau) |
+| `RULES_UNAVAILABLE` | file luật YARA đã chọn (đi kèm hoặc `--yara`) không biên dịch được; các luật còn lại vẫn chạy |
 | `MEMBER_TOO_LARGE`, `MEMBER_ENCRYPTED`, `MEMBER_BOMB`, `MEMBER_UNREADABLE` | một file con không được đọc |
 | `WORKER_ERROR`, `WORKER_TIMEOUT` | worker lỗi / bị dừng vì hard timeout |
 

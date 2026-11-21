@@ -142,7 +142,12 @@ def _clean_report(**changes):
     json.dumps(_clean_report(files="a.zip")),                              # sai kiểu trường
     json.dumps({"reports": [{"verdict": "clean"}]}),                       # thiếu trường
     json.dumps(_clean_report(incomplete=["a.zip: lỗi"])),                  # mâu thuẫn: còn phần chưa quét mà SẠCH
-], ids=["cut", "rong", "hai-bao-cao", "sai-kieu", "khong-file", "files-sai-kieu", "thieu-truong", "mau-thuan"])
+    json.dumps(_clean_report(complete=False)),                             # mâu thuẫn: complete ≠ incomplete
+    json.dumps(_clean_report(files=[{"path": "a.zip", "verdict": "clean"},  # SẠCH đứng trên file con nguy hiểm
+                                    {"path": "a.zip > x.exe", "verdict": "malicious"}])),
+    json.dumps(_clean_report(files=[{"path": "a.zip", "verdict": "safe"}])),  # verdict của file sai
+], ids=["cut", "rong", "hai-bao-cao", "sai-kieu", "khong-file", "files-sai-kieu", "thieu-truong", "mau-thuan",
+        "complete-lech", "sach-tren-file-doc", "verdict-file-sai"])
 def test_untrustworthy_worker_result_is_never_clean(tmp_path, monkeypatch, payload):
     def worker(cmd, stdin, timeout, memory_mb=None, cwd=None, env=None):
         with open(cmd[cmd.index("--json") + 1], "w", encoding="utf-8") as f:
@@ -168,3 +173,47 @@ def test_well_formed_worker_result_is_accepted(tmp_path, monkeypatch):
     target = tmp_path / "a.zip"
     target.write_bytes(make_zip({"a.txt": b"a"}))
     assert main([str(target), "--no-clamav"]) == 0
+
+
+@pytest.mark.parametrize("extra, accepted", [(0, True), (1, False)], ids=["dung-gioi-han", "vuot-1-byte"])
+def test_worker_report_size_is_bounded(tmp_path, monkeypatch, extra, accepted):
+    # báo cáo đúng N byte được nhận; N+1 byte bị từ chối TRƯỚC khi parse → WORKER_ERROR, không bao giờ SẠCH
+    payload = json.dumps(_clean_report())
+    monkeypatch.setattr(isolate, "MAX_REPORT_BYTES", len(payload.encode()) - extra)
+
+    def worker(cmd, stdin, timeout, memory_mb=None, cwd=None, env=None):
+        with open(cmd[cmd.index("--json") + 1], "w", encoding="utf-8") as f:
+            f.write(payload)
+        return 0, "", "", False
+    monkeypatch.setattr(isolate, "run", worker)
+    target = tmp_path / "a.zip"
+    target.write_bytes(make_zip({"a.txt": b"a"}))
+    out = tmp_path / "r.json"
+    code = main([str(target), "--no-clamav", "--json", str(out)])
+    report = json.loads(out.read_text(encoding="utf-8"))["reports"][0]
+    if accepted:
+        assert code == 0 and report["verdict"] == "clean"
+    else:
+        assert code == 3 and report["incomplete_reasons"][0]["code"] == "WORKER_ERROR"
+
+
+def test_worker_logs_are_bounded(monkeypatch):
+    import tempfile
+    monkeypatch.setattr(isolate, "MAX_LOG_BYTES", 10)
+    with tempfile.TemporaryFile() as f:
+        f.write(b"0123456789abcdef")
+        head, tail = isolate._bounded_text(f, head=True), isolate._bounded_text(f, head=False)
+    assert head.startswith("0123456789") and "abcdef" not in head and "cắt bớt" in head
+    assert tail.endswith("6789abcdef") and "012345" not in tail and "cắt bớt" in tail
+
+
+def test_broken_yara_rule_file_is_never_clean(tmp_path):
+    pytest.importorskip("yara")
+    from archive_guard.scanner import Scanner
+    (tmp_path / "good.yar").write_text('rule ag_marker { strings: $a = "ag-test-marker" condition: $a }')
+    (tmp_path / "bad.yar").write_text("rule broken { condition: khong_ton_tai }")
+    report = Scanner(yara_paths=[tmp_path], use_clamav=False).scan_bytes(b"ag-test-marker", "a.txt").to_dict()
+    assert report["verdict"] != "clean" and not report["complete"]
+    assert [r["code"] for r in report["incomplete_reasons"]] == ["RULES_UNAVAILABLE"]
+    assert "bad.yar" in report["incomplete_reasons"][0]["detail"]
+    assert any(f["rule"] == "YARA.ag_marker" for f in report["files"][0]["findings"])  # luật còn lại vẫn chạy

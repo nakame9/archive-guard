@@ -5,6 +5,7 @@ on:
   pull_request:
   schedule:
     - cron: "41 0 * * *"  # hằng ngày: CVE mới được công bố mà code không đổi vẫn phải bị phát hiện
+  workflow_call:  # release.yml gọi lại trên ĐÚNG commit được tag trước khi build
 
 permissions:
   contents: read

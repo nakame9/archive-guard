@@ -67,9 +67,30 @@ def run(cmd, stdin: bytes, timeout: float, memory_mb: int | None = None, cwd=Non
             _kill_tree(p, job)  # dọn process cháu còn sót, vd. clamscan khi worker crash giữa chừng
             if job:
                 _k32().CloseHandle(job)
-        out.seek(0)
-        err.seek(0)
-        return p.returncode, out.read().decode("utf-8", "replace"), err.read().decode("utf-8", "replace"), timed_out
+        return p.returncode, _bounded_text(out, head=True), _bounded_text(err, head=False), timed_out
+
+
+MAX_LOG_BYTES = 16 << 20  # stdout/stderr của worker (không tin cậy): giữ tối đa chừng này, phần còn lại bị cắt
+MAX_REPORT_BYTES = 64 << 20  # báo cáo JSON lớn hơn = không hợp lệ (WORKER_ERROR), không nạp vào RAM process cha
+
+
+def _bounded_text(f, head: bool) -> str:
+    """Đọc tối đa MAX_LOG_BYTES: phần đầu (stdout) hoặc phần cuối (stderr – dòng lỗi cuối là dòng cần)."""
+    size = f.seek(0, os.SEEK_END)
+    f.seek(0 if head or size <= MAX_LOG_BYTES else size - MAX_LOG_BYTES)
+    text = f.read(MAX_LOG_BYTES).decode("utf-8", "replace")
+    if size <= MAX_LOG_BYTES:
+        return text
+    return text + "\n… (cắt bớt output của worker)" if head else "(cắt bớt output của worker) …\n" + text
+
+
+def read_report(path) -> dict:
+    """Đọc báo cáo JSON của worker, tối đa MAX_REPORT_BYTES; lớn hơn → ValueError (đọc N+1 byte rồi mới quyết)."""
+    with open(path, "rb") as f:
+        raw = f.read(MAX_REPORT_BYTES + 1)
+    if len(raw) > MAX_REPORT_BYTES:
+        raise ValueError(f"báo cáo của worker lớn hơn {MAX_REPORT_BYTES >> 20} MB")
+    return json.loads(raw.decode("utf-8"))
 
 
 def _kill_tree(p, job):
@@ -175,6 +196,13 @@ def check_report(report) -> None:
         raise ValueError("thiếu hoặc sai trường incomplete")
     if incomplete and report["verdict"] == "clean":
         raise ValueError("mâu thuẫn: còn phần chưa quét nhưng kết luận SẠCH")
+    if report.get("complete") is not (not incomplete):
+        raise ValueError("mâu thuẫn: trường complete không khớp với incomplete")
+    if any(f.get("verdict") not in VERDICTS for f in files):
+        raise ValueError("file có verdict sai")
+    worst = max((f["verdict"] for f in files), key=VERDICTS.index)
+    if VERDICTS.index(report["verdict"]) < VERDICTS.index(worst):
+        raise ValueError(f"mâu thuẫn: kết luận chung {report['verdict']} nhẹ hơn một file bên trong ({worst})")
 
 
 def add_known_malware(report: dict, index: int, findings: list) -> None:
@@ -217,7 +245,7 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
         if timed_out:
             return None, stdout, f"worker bị dừng sau {hard_timeout:g} giây (hard timeout)", True
         try:
-            data = json.loads(out.read_text(encoding="utf-8"))
+            data = read_report(out)
             (report,) = data["reports"]  # đúng một báo cáo cho đúng một file
         except (OSError, ValueError, KeyError, TypeError):
             lines = stderr.strip().splitlines() or ["không có thông báo lỗi"]
@@ -226,6 +254,9 @@ def scan(path, worker_args, passwords, hard_timeout: float, memory_mb: int | Non
         try:
             check_report(report)
             report["sandbox"] = data.get("sandbox")
+            # engine thực sự chạy và phiên bản luật, do worker tự khai (thông tin, không phải bằng chứng)
+            for k in ("engines", "rules_version", "rules_components"):
+                report[k] = data.get(k)
             # gộp ở ĐÂY, không gửi vào worker: worker bị khai thác có thể xóa phát hiện của ClamAV khỏi báo cáo
             add_known_malware(report, 0, [f.to_dict() for f in clamd or []])
         except (ValueError, KeyError, TypeError, IndexError) as e:

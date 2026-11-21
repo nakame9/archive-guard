@@ -333,6 +333,7 @@ def _scanner(ap, args, request) -> Scanner:
         if request.get("clamd_done"):  # process cha đã quét bằng clamdscan và TỰ gộp kết quả (worker không xóa được)
             scanner.use_clamav = True
             scanner.clamav = lambda path, timeout: []
+            scanner.engines["clamav"] = "clamdscan (process chính)"
         else:
             scanner.clamav = lambda path, timeout: engines.clamav_scan(path, timeout, commands=("clamscan",))
     return scanner
