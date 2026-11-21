@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 import zipfile
+import zlib
 from dataclasses import dataclass
 
 MAGIC = [
@@ -292,49 +293,151 @@ def _zip(src, name, kind, limit, passwords, budget):
 _ZIP_METHODS = {0, 1, 6, 8, 9, 12, 14, 93, 95, 98, 99}
 
 
-def zip_anomalies(src) -> tuple[list, list]:
-    """Cấu trúc ZIP bất thường: (các cặp entry dùng chung vùng dữ liệu, tên các file có local header nhưng KHÔNG có
-    trong danh mục). Chỉ gọi SAU khi đã duyệt file qua ngân sách (số entry đã được kiểm tra)."""
-    import bisect
+MAX_HIDDEN = 20  # entry ẩn được báo/quét tối đa; nhiều hơn → phần còn lại CHƯA QUÉT ĐỦ
+
+
+@dataclass
+class HiddenEntry:
+    """Local header hợp lệ nằm ngoài vùng của mọi entry trong danh mục (trình giải nén đọc tuần tự sẽ thấy nó)."""
+    pos: int
+    name: str
+    flags: int
+    method: int
+    crc: int
+    packed: int
+    size: int
+    data_off: int
+
+
+@contextlib.contextmanager
+def _buffer(src):
+    """(file đã mở, bytes hoặc mmap của toàn bộ file) – không nạp file nén gốc trên đĩa vào RAM."""
     import mmap
 
-    with _open(src) as f, zipfile.ZipFile(f) as zf:
-        buf = src if isinstance(src, bytes) else mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    with _open(src) as f:
+        if isinstance(src, bytes):
+            yield f, src
+            return
+        buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
         try:
-            ranges = []
-            for info in zf.infolist():
-                off = info.header_offset
-                if buf[off:off + 4] == b"PK\x03\x04":
-                    name_len, extra_len = struct.unpack_from("<HH", buf, off + 26)
-                    ranges.append((off, off + 30 + name_len + extra_len + info.compress_size, info.filename))
-            ranges.sort()
-            overlaps = [(a[2], b[2]) for a, b in zip(ranges, ranges[1:]) if b[0] < a[1]]
-            starts, ends, hidden = [r[0] for r in ranges], [r[1] for r in ranges], []
-            pos = buf.find(b"PK\x03\x04")
-            while pos != -1 and len(hidden) < 20:
-                i = bisect.bisect_right(starts, pos) - 1
-                if i < 0 or (starts[i] != pos and ends[i] <= pos):  # không thuộc vùng của entry nào (kể cả ZIP lồng)
-                    name = _local_header_name(buf, pos)
-                    if name is not None:
-                        hidden.append(name)
-                pos = buf.find(b"PK\x03\x04", pos + 1)
-            return overlaps, hidden
+            yield f, buf
         finally:
-            if not isinstance(src, bytes):
-                buf.close()
+            buf.close()
 
 
-def _local_header_name(buf, pos):
-    """Tên file nếu tại pos là một local header hợp lệ (lọc chuỗi PK\\x03\\x04 ngẫu nhiên trong dữ liệu nén)."""
+def zip_anomalies(src) -> tuple[list, list]:
+    """Cấu trúc ZIP bất thường: (các cặp entry dùng chung vùng dữ liệu, các HiddenEntry – có local header nhưng KHÔNG
+    có trong danh mục; tối đa MAX_HIDDEN + 1 để người gọi biết còn sót). Chỉ gọi SAU khi đã duyệt file qua ngân sách
+    (số entry đã được kiểm tra)."""
+    import bisect
+
+    with _buffer(src) as (f, buf), zipfile.ZipFile(f) as zf:
+        ranges = []
+        for info in zf.infolist():
+            off = info.header_offset
+            if buf[off:off + 4] == b"PK\x03\x04":
+                name_len, extra_len = struct.unpack_from("<HH", buf, off + 26)
+                ranges.append((off, off + 30 + name_len + extra_len + info.compress_size, info.filename))
+        ranges.sort()
+        overlaps = [(a[2], b[2]) for a, b in zip(ranges, ranges[1:]) if b[0] < a[1]]
+        starts, ends, hidden = [r[0] for r in ranges], [r[1] for r in ranges], []
+        pos = buf.find(b"PK\x03\x04")
+        while pos != -1 and len(hidden) <= MAX_HIDDEN:
+            i = bisect.bisect_right(starts, pos) - 1
+            if i < 0 or (starts[i] != pos and ends[i] <= pos):  # không thuộc vùng của entry nào (kể cả ZIP lồng)
+                entry = _local_header(buf, pos)
+                if entry is not None:
+                    hidden.append(entry)
+            pos = buf.find(b"PK\x03\x04", pos + 1)
+        return overlaps, hidden
+
+
+def _local_header(buf, pos) -> HiddenEntry | None:
+    """Local header hợp lệ tại pos (lọc chuỗi PK\\x03\\x04 ngẫu nhiên trong dữ liệu nén), hoặc None."""
     if pos + 30 > len(buf):
         return None
-    version, _flags, method = struct.unpack_from("<HHH", buf, pos + 4)
-    name_len, extra_len = struct.unpack_from("<HH", buf, pos + 26)
+    version, flags, method = struct.unpack_from("<HHH", buf, pos + 4)
+    crc, packed, size, name_len, extra_len = struct.unpack_from("<IIIHH", buf, pos + 14)
     raw = buf[pos + 30:pos + 30 + name_len]
     if version > 100 or method not in _ZIP_METHODS or not 0 < name_len <= 1024 or len(raw) < name_len \
             or b"\x00" in raw or pos + 30 + name_len + extra_len > len(buf):
         return None
-    return raw.decode("utf-8", "replace")
+    return HiddenEntry(pos, raw.decode("utf-8", "replace"), flags, method, crc, packed, size,
+                       pos + 30 + name_len + extra_len)
+
+
+def read_hidden(src, h: HiddenEntry, limit, budget) -> tuple[bytes | None, str]:
+    """Đọc nội dung một entry ẩn CHỈ khi giải mã được không mơ hồ: kích thước có trong local header (không dùng data
+    descriptor), không mã hóa, stored/deflate, không phải ZIP64, CRC khớp. Trả (dữ liệu, "") hoặc (None, lý do)."""
+    budget.entry()
+    if h.flags & 1:
+        return None, "entry ẩn có mật khẩu"
+    if h.flags & 8 or h.packed == 0xFFFFFFFF or h.size == 0xFFFFFFFF:
+        return None, "entry ẩn không ghi kích thước trong local header (data descriptor/ZIP64)"
+    if h.method not in (0, 8):
+        return None, f"entry ẩn dùng phương thức nén {h.method} chưa hỗ trợ"
+    if h.size > limit:
+        budget.take(h.size)
+        return None, TOO_BIG
+    with _buffer(src) as (_, buf):
+        raw = bytes(buf[h.data_off:h.data_off + h.packed])
+    if len(raw) != h.packed:
+        return None, "entry ẩn bị cắt cụt"
+    data = raw if h.method == 0 else zlib.decompressobj(-15).decompress(raw, h.size + 1)  # tối đa size + 1 byte
+    budget.take(len(data))
+    if len(data) != h.size or zlib.crc32(data) != h.crc:
+        return None, "entry ẩn sai kích thước hoặc CRC"
+    return data, ""
+
+
+def zip_coverage(src) -> dict:
+    """Độ phủ CẤU TRÚC của một ZIP: byte nào thuộc một bản ghi đã kiểm tra hợp lệ (PKWARE APPNOTE).
+
+    Vùng được giải thích: local header (cả extra field: padding căn lề, ZIP64), dữ liệu entry (cả khung mã hóa), data
+    descriptor ngay sau entry khớp CRC/kích thước, danh mục, bản ghi ZIP64 EOCD + locator, EOCD + comment, và phần PE
+    phía trước (SFX: đến hết section cuối). Mọi byte khác là "chưa giải thích được".
+    Chỉ nói về CẤU TRÚC: phủ 100% không có nghĩa nội dung đã được kiểm tra hay file an toàn.
+    """
+    with _buffer(src) as (f, buf), zipfile.ZipFile(f) as zf:
+        size = len(buf)
+        end = zipfile._EndRecData(f)  # cùng bản ghi EOCD mà zipfile đã dùng để đọc danh mục
+        eocd = end[zipfile._ECD_LOCATION]
+        regions = [(zf.start_dir, zf.start_dir + end[zipfile._ECD_SIZE]),
+                   (eocd, eocd + 22 + end[zipfile._ECD_COMMENT_SIZE])]
+        loc = eocd - 20  # ZIP64: record 56 byte + locator 20 byte ngay trước EOCD
+        if loc >= 56 and buf[loc:loc + 4] == b"PK\x06\x07" and buf[loc - 56:loc - 52] == b"PK\x06\x06":
+            regions.append((loc - 56, loc + 20))
+        for info in zf.infolist():
+            off = info.header_offset
+            if buf[off:off + 4] != b"PK\x03\x04":
+                continue
+            name_len, extra_len = struct.unpack_from("<HH", buf, off + 26)
+            data_end = off + 30 + name_len + extra_len + info.compress_size
+            regions.append((off, data_end + (_descriptor_len(buf, data_end, info) if info.flag_bits & 8 else 0)))
+        first = min(r[0] for r in regions)
+        pe_end = _pe_overlay(buf) if first and buf[:2] == b"MZ" else None
+        if pe_end:
+            regions.append((0, min(pe_end, first)))
+        explained, gaps, pos = 0, [], 0
+        for a, b in sorted((max(0, a), min(size, b)) for a, b in regions):
+            if a > pos:
+                gaps.append([pos, a])
+            explained += max(0, b - max(a, pos))
+            pos = max(pos, b)
+        if pos < size:
+            gaps.append([pos, size])
+        return {"bytes": size, "explained": explained, "unexplained_bytes": size - explained,
+                "unexplained": gaps[:20]}  # [đầu, cuối) – tối đa 20 khoảng đầu tiên
+
+
+def _descriptor_len(buf, pos, info) -> int:
+    """Độ dài data descriptor tại pos nếu khớp CRC + kích thước của entry (12/16 byte, ZIP64 20/24 byte), không thì 0."""
+    sig = 4 if buf[pos:pos + 4] == b"PK\x07\x08" else 0
+    for fmt, n in (("<III", 12), ("<IQQ", 20)):
+        if len(buf) >= pos + sig + n and \
+                struct.unpack_from(fmt, buf, pos + sig) == (info.CRC, info.compress_size, info.file_size):
+            return sig + n
+    return 0
 
 
 def _tar(src, name, kind, limit, passwords, budget):
