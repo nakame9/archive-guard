@@ -157,7 +157,9 @@ def has_trailing_zip(f) -> bool:
         return False
     count, end = struct.unpack_from("<HI", tail, i + 10)[0], i
     cd_size = struct.unpack_from("<I", tail, i + 12)[0]
-    if tail[i - 20:i - 16] == b"PK\x06\x07" and tail[i - 76:i - 72] == b"PK\x06\x06":  # ZIP64
+    # ZIP64: record 56 byte + locator 20 byte ngay trước EOCD. Đòi i >= 76: chỉ số âm trong slice của Python đếm từ
+    # CUỐI chuỗi – file được dựng để có locator sát đầu từng làm offset âm, struct.error lọt ra process chính
+    if i >= 76 and tail[i - 20:i - 16] == b"PK\x06\x07" and tail[i - 76:i - 72] == b"PK\x06\x06":
         cd_size, end, count = struct.unpack_from("<Q", tail, i - 76 + 40)[0], i - 76, 1
     start = base + end - cd_size
     if count == 0 or start < 0:
