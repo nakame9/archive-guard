@@ -13,6 +13,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: update-hashes   # các lượt nối tiếp nhau: không lượt nào ghi đè Release bằng dữ liệu cũ hơn
+  cancel-in-progress: false
+
 jobs:
   update:
     if: github.ref == 'refs/heads/main'  # danh tính chữ ký mà --update-db chấp nhận gắn với nhánh main
@@ -28,10 +32,12 @@ jobs:
         with:
           python-version: "3.13"
       - run: python -m pip install --require-hashes -r requirements-dev.txt && python -m pip install --no-deps -e .
+      - name: Lấy bản đã ký gần nhất từ Release hash-db làm gốc (tải/xác minh lỗi → dừng, không đăng gì)
+        run: python -c "from archive_guard import malwarebazaar as mb; print(mb.download_db('seed/malwarebazaar.txt'), 'mã băm')"
       - name: Tải mã băm (gộp vào danh sách cũ, bỏ mã cũ hơn 12 tháng)
         env:
           ABUSECH_AUTH_KEY: ${{ secrets.ABUSECH_AUTH_KEY }}
-        run: python -c "import os; from archive_guard import malwarebazaar as mb; mb.update(os.environ['ABUSECH_AUTH_KEY'], 'archive_guard/data/malwarebazaar.txt')"
+        run: python -c "import os; from archive_guard import malwarebazaar as mb; mb.update(os.environ['ABUSECH_AUTH_KEY'], 'archive_guard/data/malwarebazaar.txt', seed=['seed/malwarebazaar.txt'])"
       - run: mkdir dist && cp archive_guard/data/malwarebazaar.txt dist/
       - name: Ký bằng Sigstore
         uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0

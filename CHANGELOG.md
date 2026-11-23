@@ -7,6 +7,11 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+### Thay đổi
+- Workflow `update-hashes` lấy bản đã ký gần nhất từ Release `hash-db` (xác minh chữ ký Sigstore) làm gốc trước khi
+  gộp mã mới, và các lượt chạy nối tiếp nhau: chuẩn bị bỏ bước commit mã băm vào `main` (M4) mà không mất lịch sử.
+  Tải/xác minh lỗi → dừng, không đăng gì.
+
 ### Thay đổi nội bộ (không đổi hành vi)
 - `cli.main()` tách thành các hàm một trách nhiệm (`_parser`, `_check_args`, `_run_updates`, `_scanner`,
   `_worker_sandbox`, `_banner`, `_scan_in_process`, `_write_json`): độ phức tạp vòng 36 → 18. Đã đối chiếu mã thoát và
