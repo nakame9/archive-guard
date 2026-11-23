@@ -64,6 +64,32 @@ def test_update_keeps_dates_and_drops_hashes_older_than_12_months(tmp_path):
     assert undated in cache.read_text(encoding="utf-8")  # có truy vấn lỗi: chưa biết chắc là cũ, giữ lại
 
 
+def test_update_seeds_from_release_without_losing_history(tmp_path):
+    import datetime
+
+    from archive_guard import malwarebazaar
+
+    today = datetime.date(2026, 11, 1)
+    a, b, c, d, e = (letter * 64 for letter in "abcde")
+    seed = tmp_path / "release.txt"
+    seed.write_text(f"{a} Vidar 2026-10-01\n{b} Vidar 2025-10-01\n{c} Vidar 2026-06-01\n",
+                    encoding="utf-8")
+    cache = tmp_path / "mb.txt"
+    cache.write_text(f"{c} Vidar 2026-09-01\n{d} Vidar 2026-08-01\n", encoding="utf-8")
+
+    def fake_query(key, form):
+        if form.get("signature") == "AsyncRAT":
+            return [{"sha256_hash": e, "signature": "AsyncRAT", "first_seen": "2026-10-31 08:00:00"}]
+        return []
+
+    assert malwarebazaar.update("k", cache, log=lambda *_: None, query=fake_query,
+                               today=today, seed=[seed]) == (1, 4)
+    assert malwarebazaar._read(cache) == {
+        a: ["Vidar", "2026-10-01"], c: ["Vidar", "2026-09-01"],
+        d: ["Vidar", "2026-08-01"], e: ["AsyncRAT", "2026-10-31"],
+    }
+
+
 def test_update_hashes_needs_working_key(tmp_path, monkeypatch):
     from archive_guard import malwarebazaar
 
