@@ -8,7 +8,13 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 ## [Chưa phát hành]
 
 ## [0.19.0] – 2026-11-24
-Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồm M1, M3, nền 0.18 (giai đoạn A) và M2a.
+Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồm M1, M3, nền 0.18 (giai đoạn A), M2 (M2a + M2b)
+và bước 1 của M4.
+
+### Thay đổi
+- Workflow `update-hashes` lấy bản đã ký gần nhất từ Release `hash-db` (xác minh chữ ký Sigstore) làm gốc trước khi
+  gộp mã mới, và các lượt chạy nối tiếp nhau: chuẩn bị bỏ bước commit mã băm vào `main` (M4) mà không mất lịch sử.
+  Tải/xác minh lỗi → dừng, không đăng gì.
 
 ### Thay đổi nội bộ (không đổi hành vi)
 - `cli.main()` tách thành các hàm một trách nhiệm (`_parser`, `_check_args`, `_run_updates`, `_scanner`,
@@ -18,6 +24,10 @@ Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồ
 - Xóa `Budget.remaining()` (không nơi nào gọi).
 
 ### Bảo mật
+- **M2b – byte lạ trong ZIP không còn ra SẠCH:** còn byte không thuộc bản ghi ZIP hợp lệ → CHƯA QUÉT ĐỦ
+  (`UNEXPLAINED_BYTES`). Benchmark 260 gói sạch (3 bộ) trước khi bật: 2 trường hợp, đều do định dạng bên ngoài
+  (ZIP trong section `.rsrc` của PE, ZIP trong file OLE) và đã được tính đúng; sau khi sửa: 0/211 mẫu sạch có ZIP
+  còn byte lạ.
 - **Lỗi khi kiểm tra cấu trúc ZIP không còn bị nuốt thành SẠCH:** trước đây một số lỗi ở bước tìm entry bị giấu/vùng
   dữ liệu chồng nhau bị bỏ qua im lặng (kết luận SẠCH), số khác làm crash cả lần quét; giờ đều là CHƯA QUÉT ĐỦ
   (`STRUCTURE_UNCHECKED`).

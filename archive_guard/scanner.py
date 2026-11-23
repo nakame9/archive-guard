@@ -56,6 +56,7 @@ REASONS = {
     "WORKER_TIMEOUT": "worker bị dừng vì hard timeout",
     "RULES_UNAVAILABLE": "file luật YARA đã chọn (đi kèm hoặc --yara) không biên dịch được",
     "HIDDEN_UNSCANNED": "entry ZIP bị giấu khỏi danh mục nhưng không giải mã được không mơ hồ (data descriptor, mã hóa…)",
+    "UNEXPLAINED_BYTES": "file ZIP có byte không thuộc bản ghi hợp lệ nào (byte lạ giữa/sau các bản ghi, dữ liệu gắn trước không phải PE)",
 }
 
 
@@ -420,10 +421,10 @@ class Scanner:
             self._not_checked(res, report, display, "HIDDEN_UNSCANNED", f"hơn {MAX_HIDDEN} entry ẩn, phần còn lại chưa quét")
 
     @staticmethod
-    def _coverage(src) -> dict:
-        """Độ phủ cấu trúc ZIP – CHỈ ghi nhận (0.19), chưa đổi kết luận; lỗi khi đo cũng chỉ ghi lại."""
+    def _coverage(src, outer) -> dict:
+        """Độ phủ cấu trúc ZIP; byte lạ hoặc lỗi đo khiến kết luận CHƯA QUÉT ĐỦ."""
         try:
-            return zip_coverage(src)
+            return zip_coverage(src, outer)
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 
@@ -463,7 +464,15 @@ class Scanner:
                 else:
                     res.findings += found[0]
                     self._scan_hidden(src, found[1], display, depth, res, report, budget)
-                res.coverage = self._coverage(src)
+                res.coverage = self._coverage(src, res.kind)
+                if "error" in res.coverage:
+                    self._not_checked(res, report, display, "STRUCTURE_UNCHECKED",
+                                      "không đo được độ phủ cấu trúc ZIP: " + res.coverage["error"])
+                elif res.coverage["unexplained_bytes"] > 0:
+                    n = res.coverage["unexplained_bytes"]
+                    self._not_checked(res, report, display, "UNEXPLAINED_BYTES",
+                                      f"{n} byte không thuộc bản ghi ZIP hợp lệ nào, vd. khoảng "
+                                      f"{res.coverage['unexplained'][0]}")
         except BudgetExceeded as e:  # ném ra NGAY trong lúc giải nén, giữa chừng một file con
             self._stop(budget, e, res, report, display)
         except EncryptedArchive as e:
