@@ -425,12 +425,13 @@ def zip_metadata(src) -> list[tuple[str, bytes]]:
     return out
 
 
-def zip_coverage(src) -> dict:
+def zip_coverage(src, outer: str = "zip") -> dict:
     """Độ phủ CẤU TRÚC của một ZIP: byte nào thuộc một bản ghi đã kiểm tra hợp lệ (PKWARE APPNOTE).
 
     Vùng được giải thích: local header (cả extra field: padding căn lề, ZIP64), dữ liệu entry (cả khung mã hóa), data
     descriptor ngay sau entry khớp CRC/kích thước, danh mục, bản ghi ZIP64 EOCD + locator, EOCD + comment, và phần PE
-    phía trước (SFX: đến hết section cuối). Mọi byte khác là "chưa giải thích được".
+    đến hết section cuối. outer là loại file chứa ZIP; chỉ OLE sở hữu phần ngoài ZIP (xem ghi chú bên dưới).
+    Mọi byte khác là "chưa giải thích được".
     Chỉ nói về CẤU TRÚC: phủ 100% không có nghĩa nội dung đã được kiểm tra hay file an toàn.
     """
     with _buffer(src) as (f, buf), zipfile.ZipFile(f) as zf:
@@ -452,7 +453,13 @@ def zip_coverage(src) -> dict:
         first = min(r[0] for r in regions)
         pe_end = _pe_overlay(buf) if first and buf[:2] == b"MZ" else None
         if pe_end:
-            regions.append((0, min(pe_end, first)))
+            regions.append((0, pe_end))
+        # ponytail: chỉ OLE (gặp thật trong benchmark: ZIP trong stream của .xls). KHÔNG mở rộng thành "mọi loại khác
+        # zip/pe": thêm "%PDF-" vào đầu là đủ để byte rác sau EOCD được bỏ qua. Thêm định dạng khi có mẫu sạch thật
+        container = outer == "ole"
+        if container:
+            zip_end = max(r[1] for r in regions)
+            regions.extend(((0, first), (zip_end, size)))
         explained, gaps, pos = 0, [], 0
         for a, b in sorted((max(0, a), min(size, b)) for a, b in regions):
             if a > pos:
@@ -462,7 +469,7 @@ def zip_coverage(src) -> dict:
         if pos < size:
             gaps.append([pos, size])
         return {"bytes": size, "explained": explained, "unexplained_bytes": size - explained,
-                "unexplained": gaps[:20]}  # [đầu, cuối) – tối đa 20 khoảng đầu tiên
+                "unexplained": gaps[:20], **({"container": outer} if container else {})}  # tối đa 20 khoảng [đầu, cuối)
 
 
 def _descriptor_len(buf, pos, info) -> int:

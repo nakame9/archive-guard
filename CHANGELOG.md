@@ -17,6 +17,10 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 ### Bảo mật
 - **Quét nội dung comment và extra field của ZIP** (trước đây ra SẠCH dù chứa payload): từng comment và từng bản ghi
   extra field > 64 byte được tra mã băm, heuristic, YARA; phát hiện ghi rõ vị trí. Không giải nén nội dung trong đó.
+- **M2b – byte lạ trong ZIP không còn ra SẠCH:** còn byte không thuộc bản ghi ZIP hợp lệ → CHƯA QUÉT ĐỦ
+  (`UNEXPLAINED_BYTES`). Benchmark 260 gói sạch (3 bộ) trước khi bật: 2 trường hợp, đều do định dạng bên ngoài
+  (ZIP trong section `.rsrc` của PE, ZIP trong file OLE) và đã được tính đúng; sau khi sửa: 0/211 mẫu sạch có ZIP
+  còn byte lạ.
 - **Lỗi khi kiểm tra cấu trúc ZIP không còn bị nuốt thành SẠCH:** trước đây một số lỗi ở bước tìm entry bị giấu/vùng
   dữ liệu chồng nhau bị bỏ qua im lặng (kết luận SẠCH), số khác làm crash cả lần quét; giờ đều là CHƯA QUÉT ĐỦ
   (`STRUCTURE_UNCHECKED`).
