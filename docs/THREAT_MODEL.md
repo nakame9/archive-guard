@@ -58,9 +58,9 @@ Không tin kích thước khai báo: luôn đọc tối đa `giới hạn + 1` b
 (`ARCHIVE.OVERLAP`) hoặc entry có local header nhưng bị giấu khỏi danh mục (`ARCHIVE.HIDDEN_ENTRY`) được báo riêng;
 nội dung entry ẩn được quét khi giải mã được không mơ hồ, không thì `HIDDEN_UNSCANNED`. Độ phủ cấu trúc ZIP
 (`files[].coverage`) cho biết byte nào không thuộc bản ghi hợp lệ nào – từ M2b byte chưa giải thích được
-làm kết luận ≥ CHƯA QUÉT ĐỦ (`UNEXPLAINED_BYTES`); đo lỗi → `STRUCTURE_UNCHECKED`.
-Lỗ hổng đã biết (`tests/evasion.py`): nội dung comment và extra field
-hợp lệ về cấu trúc nhưng không được quét.
+làm kết luận ≥ CHƯA QUÉT ĐỦ (`UNEXPLAINED_BYTES`); đo lỗi → `STRUCTURE_UNCHECKED`. Nội dung comment và extra field
+(> 64 byte mỗi bản ghi) được quét như dữ liệu thô (mã băm, heuristic, YARA) nhưng không giải nén: file nén giấu
+trong đó không được mở.
 File nén nằm sau dữ liệu khác (ZIP có byte rác ở đầu, ZIP/7z/RAR gắn sau PE) cũng được giải nén (0.17.1).
 
 Giới hạn còn lại: py7zr và rarfile nạp **toàn bộ** danh mục 7z/RAR khi mở – danh mục cực lớn tốn RAM trước khi ngân

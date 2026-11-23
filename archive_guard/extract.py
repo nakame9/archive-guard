@@ -392,12 +392,45 @@ def read_hidden(src, h: HiddenEntry, limit, budget) -> tuple[bytes | None, str]:
     return data, ""
 
 
+METADATA_MIN = 64  # ZIP64, timestamp, NTFS ngắn không đủ chỗ cho payload, bỏ qua
+
+
+def zip_metadata(src) -> list[tuple[str, bytes]]:
+    """Comment file nén/entry và từng bản ghi extra field > METADATA_MIN byte, dạng dữ liệu thô."""
+    out = []
+    with _buffer(src) as (f, buf), zipfile.ZipFile(f) as zf:
+        if zf.comment:
+            out.append(("comment của file nén", bytes(zf.comment)))
+        for info in zf.infolist():
+            if info.comment:
+                out.append((f"comment của {info.filename}", bytes(info.comment)))
+            extras = [("danh mục", info.extra)]
+            off = info.header_offset
+            if buf[off:off + 4] == b"PK\x03\x04":
+                name_len, extra_len = struct.unpack_from("<HH", buf, off + 26)
+                start = off + 30 + name_len
+                extras.append(("local", buf[start:start + extra_len]))
+            for source, extra in extras:
+                pos = 0
+                while pos + 4 <= len(extra):
+                    hid, n = struct.unpack_from("<HH", extra, pos)
+                    if pos + 4 + n > len(extra):
+                        break
+                    data = extra[pos + 4:pos + 4 + n]
+                    pos += 4 + n
+                    if len(data) > METADATA_MIN:
+                        out.append((f"extra field 0x{hid:04x} ({source}) của {info.filename}", bytes(data)))
+                if len(extra) - pos > METADATA_MIN:
+                    out.append((f"phần thừa của extra field ({source}) của {info.filename}", bytes(extra[pos:])))
+    return out
+
+
 def zip_coverage(src, outer: str = "zip") -> dict:
     """Độ phủ CẤU TRÚC của một ZIP: byte nào thuộc một bản ghi đã kiểm tra hợp lệ (PKWARE APPNOTE).
 
     Vùng được giải thích: local header (cả extra field: padding căn lề, ZIP64), dữ liệu entry (cả khung mã hóa), data
     descriptor ngay sau entry khớp CRC/kích thước, danh mục, bản ghi ZIP64 EOCD + locator, EOCD + comment, và phần PE
-    đến hết section cuối. outer là loại container; định dạng đã nhận ra khác ZIP/PE sở hữu phần ngoài ZIP.
+    đến hết section cuối. outer là loại file chứa ZIP; chỉ OLE sở hữu phần ngoài ZIP (xem ghi chú bên dưới).
     Mọi byte khác là "chưa giải thích được".
     Chỉ nói về CẤU TRÚC: phủ 100% không có nghĩa nội dung đã được kiểm tra hay file an toàn.
     """

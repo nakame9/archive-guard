@@ -2,7 +2,7 @@
 
 Mỗi mẫu: (hàm dựng, kết luận mong đợi, có vùng byte chưa giải thích được không, ghi chú).
 Từ M2b, mẫu ghi chú "UNEXPLAINED_BYTES" ra CHƯA QUÉT ĐỦ vì còn byte chưa giải thích.
-Mẫu ghi chú "chưa phủ" là lỗ hổng đã biết mà độ phủ cấu trúc KHÔNG bắt được.
+Nội dung comment/extra field được quét như dữ liệu thô, không giải nén.
 """
 import io
 import struct
@@ -94,6 +94,6 @@ CORPUS = {
     "double_extension": (lambda: make_zip({"hoa-don.pdf.exe": FAKE_EXE}), "suspicious", False, ""),
     "encrypted_exe": (lambda: set_encrypted_flag(make_zip({"setup.exe": FAKE_EXE})), "suspicious", False, ""),
     "7z_inside_zip": (lambda: make_zip({"a.7z": make_7z({"e.com": EICAR})}), "malicious", False, ""),
-    "comment_payload": (lambda: _comment(EICAR), "clean", False, "chưa phủ: nội dung comment không được quét"),
-    "extra_field_payload": (_extra_field_payload, "clean", False, "chưa phủ: nội dung extra field không được quét"),
+    "comment_payload": (lambda: _comment(EICAR), "malicious", False, ""),
+    "extra_field_payload": (_extra_field_payload, "malicious", False, ""),
 }
