@@ -1,6 +1,6 @@
 # Lộ trình
 
-Cập nhật lần cuối: 2026-11-08 (bản 0.17.1). Giai đoạn hiện tại **chứng minh những gì ArchiveGuard đã tuyên bố**
+Cập nhật lần cuối: 2026-11-24 (bản 0.19.0). Giai đoạn hiện tại **chứng minh những gì ArchiveGuard đã tuyên bố**
 trước khi thêm tính năng: vá lỗi đã xác nhận, ranh giới tin cậy, toàn vẹn archive, rồi mới tích hợp. Thời gian là ước
 lượng, **không** phải cam kết. Muốn góp ý hoặc nhận làm một mục: mở issue và nhắc tên mục.
 
@@ -13,7 +13,7 @@ trúc file nén, giải nén an toàn trong sandbox, và kết luận CHƯA QUÉ
 | Việc | Vì sao quan trọng |
 |---|---|
 | Bật **Private vulnerability reporting** (Settings → Code security) | Liên kết báo lỗ hổng riêng tư trong SECURITY.md chỉ hoạt động khi bật – **hiện đang tắt** |
-| Thiết lập PyPI Trusted Publisher, ký tag `v0.17.1` → bản phát hành đầu tiên | Người dùng cài được bằng `pip install archive-guard` với attestation PEP 740; các ví dụ trong INTEGRATION.md trỏ tới tag này |
+| Thiết lập PyPI Trusted Publisher, ký tag `v0.19.0` → bản phát hành đầu tiên | Người dùng cài được bằng `pip install archive-guard` với attestation PEP 740; các ví dụ trong INTEGRATION.md trỏ tới tag này |
 | **Đo recall trên mã độc thật** trong máy ảo (`benchmark/lay_mau.py`) | Con số quan trọng nhất còn thiếu; quyết định thứ tự backlog ở M4 |
 
 ## Đóng băng tính năng
@@ -27,9 +27,9 @@ thuật (ngưỡng báo nhầm…) được giải quyết bằng số liệu tr
 | | Milestone | Việc chính | Xong khi |
 |---|---|---|---|
 | ✅ | **M0 – Vá lỗi đã xác nhận** (0.17.1) | File nén gắn sau dữ liệu khác, treo ở FIFO, kết quả ClamAV qua worker, hard timeout với `setsid`, lỗi bảng mã ClamAV, trạng thái sandbox macOS | Mỗi lỗi có test hồi quy thất bại trên code cũ |
-| ✅ | **M1 – Ranh giới tin cậy** (chưa phát hành) | [THREAT_MODEL.md](THREAT_MODEL.md); kiểm thử đường lỗi (tiêm lỗi vào mọi parser/engine, báo cáo worker không hợp lệ); mã lý do `incomplete_reasons` | Bất biến "bước bắt buộc chưa xong → không SẠCH" được test cho mọi parser và engine |
-| | **M2 – Toàn vẹn archive** (tuần 3–6) | Byte coverage cho ZIP (hiểu hết / còn vùng chưa giải thích → ≥ CHƯA QUÉT ĐỦ / mâu thuẫn → ≥ ĐÁNG NGỜ); đọc nội dung entry bị giấu; so sánh `zipfile` với 7-Zip (pin phiên bản), phân loại bất đồng theo hậu quả; evasion corpus có kết quả mong đợi; fuzzing liên tục (ClusterFuzzLite + atheris); bộ phần mềm sạch thứ 4 | Mọi mẫu evasion ≠ SẠCH; tỷ lệ "còn vùng chưa giải thích" trên bộ sạch được công bố và ngưỡng chọn theo đó |
-| ✅ | **M3 – Tích hợp an toàn** (chưa phát hành) | `archive_guard.scan_file()` luôn cô lập; `disposition` gợi ý (không có trường boolean "an toàn"); dấu vân tay `policy`; evidence YARA (chuỗi khớp + offset); integration contract + backend mẫu `examples/upload_gate.py`; quyết định Windows (bên dưới). Trường `coverage` riêng để M2 thêm cùng phép đo byte coverage | Backend mẫu chạy được theo contract (có test); `--require-sandbox` cùng ý nghĩa trên mọi hệ điều hành |
+| ✅ | **M1 – Ranh giới tin cậy** (0.19.0) | [THREAT_MODEL.md](THREAT_MODEL.md); kiểm thử đường lỗi (tiêm lỗi vào mọi parser/engine, báo cáo worker không hợp lệ); mã lý do `incomplete_reasons` | Bất biến "bước bắt buộc chưa xong → không SẠCH" được test cho mọi parser và engine |
+| | **M2 – Toàn vẹn archive** (tuần 3–6) | **M2a xong trong 0.19.0** (độ phủ byte ZIP ghi nhận, entry ẩn được quét, evasion corpus, đối chiếu 7-Zip, fuzz); còn M2b: bật quy tắc byte chưa giải thích → ≥ CHƯA QUÉT ĐỦ. Byte coverage cho ZIP (hiểu hết / còn vùng chưa giải thích → ≥ CHƯA QUÉT ĐỦ / mâu thuẫn → ≥ ĐÁNG NGỜ); đọc nội dung entry bị giấu; so sánh `zipfile` với 7-Zip (pin phiên bản), phân loại bất đồng theo hậu quả; evasion corpus có kết quả mong đợi; fuzzing liên tục (ClusterFuzzLite + atheris); bộ phần mềm sạch thứ 4 | Mọi mẫu evasion ≠ SẠCH; tỷ lệ "còn vùng chưa giải thích" trên bộ sạch được công bố và ngưỡng chọn theo đó |
+| ✅ | **M3 – Tích hợp an toàn** (0.19.0) | `archive_guard.scan_file()` luôn cô lập; `disposition` gợi ý (không có trường boolean "an toàn"); dấu vân tay `policy`; evidence YARA (chuỗi khớp + offset); integration contract + backend mẫu `examples/upload_gate.py`; quyết định Windows (bên dưới). Trường `coverage` riêng để M2 thêm cùng phép đo byte coverage | Backend mẫu chạy được theo contract (có test); `--require-sandbox` cùng ý nghĩa trên mọi hệ điều hành |
 | | **M4 – Bảo trì** | README tiếng Anh; workflow mã băm thôi commit vào `main` (chỉ Release `hash-db` có chữ ký); mở lại backlog bên dưới theo số liệu recall | Phát hành và cập nhật dữ liệu không cần commit tay |
 
 ## Quyết định đã chốt
@@ -64,8 +64,7 @@ thuật (ngưỡng báo nhầm…) được giải quyết bằng số liệu tr
 
 | Bản | Nội dung |
 |---|---|
-| chưa phát hành | M3: `scan_file()`, `disposition`, `policy`, evidence YARA, integration contract, `examples/upload_gate.py` |
-| chưa phát hành | M1: THREAT_MODEL.md, kiểm thử đường lỗi, `incomplete_reasons`, process chính kiểm tra báo cáo worker, sửa lỗi kiểm tra cấu trúc ZIP bị nuốt thành SẠCH |
+| 0.19.0 | M1, M3, nền 0.18 (CI xanh, YARA lỗi không ra SẠCH, kiểm chặt báo cáo worker, cổng test trước release), M2a (độ phủ byte ZIP, quét entry ẩn, evasion corpus, 7-Zip, fuzz), sửa crash has_trailing_zip do fuzz tìm ra |
 | 0.17.1 | M0: file nén gắn sau dữ liệu khác (SFX, byte rác ở đầu), treo ở FIFO, kết quả ClamAV gộp ở process chính, hard timeout với process cháu `setsid`, trạng thái sandbox macOS |
 | 0.17.0 | Macro VBA (giải nén mã nguồn), template Office từ xa, LNK, PowerShell mã hóa, cấu trúc ZIP, URLhaus, VirusTotal |
 | 0.16.0 | `--update-db` có chữ ký, file cấu hình, `--fail-on`, `--allowlist`, `--stats`; lock file có hash, release ký Sigstore + SBOM |

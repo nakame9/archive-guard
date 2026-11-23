@@ -7,6 +7,9 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 
 ## [Chưa phát hành]
 
+## [0.19.0] – 2026-11-24
+Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồm M1, M3, nền 0.18 (giai đoạn A) và M2a.
+
 ### Thay đổi nội bộ (không đổi hành vi)
 - `cli.main()` tách thành các hàm một trách nhiệm (`_parser`, `_check_args`, `_run_updates`, `_scanner`,
   `_worker_sandbox`, `_banner`, `_scan_in_process`, `_write_json`): độ phức tạp vòng 36 → 18. Đã đối chiếu mã thoát và
