@@ -1,4 +1,5 @@
 """Định dạng nén, mật khẩu, định dạng chưa hỗ trợ: phần chưa quét không bao giờ là SẠCH."""
+import base64
 import gzip
 import io
 import tarfile
@@ -163,6 +164,33 @@ def test_pe_without_appended_archive_is_not_unpacked():
     pe = make_pe([(".rdata", b"7z\xbc\xaf\x27\x1c" + bytes(58), 0x40000040)])
     report = scan(pe, "7z.dll")
     assert report.verdict == "clean" and len(report.files) == 1 and not report.incomplete
+
+
+# Do job fuzz tìm ra (main, 2026-11-22): locator ZIP64 nằm sát đầu dữ liệu → offset âm → struct.error lọt khỏi
+# has_trailing_zip; ở process chính (chọn file khi quét thư mục) lỗi này làm dừng cả lần quét
+FUZZ_ZIP64_NEAR_START = base64.b64decode("AEpVTlB4aQhaUEsGB1BLBgYAAIABAAAAAGE+NHpQSwUGAAAAEDJqM6/as15dhnllcoBVA12GeWVygFUD")
+
+
+def test_trailing_zip_probe_never_raises_on_crafted_tail():
+    from archive_guard.extract import has_trailing_zip
+    zip64 = io.BytesIO()
+    import zipfile
+    with zipfile.ZipFile(zip64, "w") as z:
+        with z.open("a.txt", "w", force_zip64=True) as f:
+            f.write(b"a")
+    for sample in (FUZZ_ZIP64_NEAR_START, zip64.getvalue(), make_zip({"a.txt": b"a"})):
+        for cut in range(len(sample) + 1):  # mọi cách cắt đầu và cắt cuối: chỉ được trả True/False
+            assert has_trailing_zip(io.BytesIO(sample[cut:])) in (True, False)
+            assert has_trailing_zip(io.BytesIO(sample[:cut])) in (True, False)
+    assert has_trailing_zip(io.BytesIO(FUZZ_ZIP64_NEAR_START)) is False
+
+
+def test_crafted_file_does_not_stop_directory_scan(tmp_path):
+    from archive_guard.cli import main
+    (tmp_path / "a-fuzz.bin").write_bytes(FUZZ_ZIP64_NEAR_START)
+    (tmp_path / "b.zip").write_bytes(make_zip({"eicar.com": EICAR}))
+    assert scan(FUZZ_ZIP64_NEAR_START, "fuzz.bin").verdict in ("clean", "incomplete", "suspicious")
+    assert main([str(tmp_path), "--no-isolate", "--no-clamav"]) == 2  # b.zip vẫn được quét và chặn
 
 
 def test_stray_zip_end_signature_in_pe_is_not_a_zip():

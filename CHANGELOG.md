@@ -35,6 +35,10 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
   không mã hóa, stored/deflate và CRC khớp, entry được quét như file con `… > tên [ẩn]`; trường hợp khác (data
   descriptor, mã hóa, ZIP64, sai CRC, hơn 20 entry ẩn) → CHƯA QUÉT ĐỦ với mã mới `HIDDEN_UNSCANNED`.
 
+- **File được dựng có locator ZIP64 sát đầu không còn làm dừng cả lần quét thư mục** (job fuzz tìm ra): ở bước chọn
+  file nén, `has_trailing_zip` đọc slice với chỉ số âm (Python đếm từ cuối chuỗi) rồi ném `struct.error` ra process
+  chính; trong worker thì thành lỗi (mã 3). Có từ 0.17.1.
+
 ### Thêm (M2a)
 - **Độ phủ cấu trúc ZIP** `files[].coverage`: byte nào thuộc bản ghi ZIP hợp lệ (local header, dữ liệu, data
   descriptor khớp CRC, danh mục, ZIP64, EOCD + comment, phần PE của SFX), các khoảng còn lại. **Chỉ ghi nhận**, chưa đổi
