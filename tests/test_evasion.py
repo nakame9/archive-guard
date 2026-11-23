@@ -5,7 +5,9 @@ import subprocess
 
 import pytest
 from evasion import CORPUS
+from helpers import make_pe, make_zip
 
+from archive_guard.extract import zip_coverage
 from archive_guard.scanner import Scanner
 
 
@@ -25,8 +27,24 @@ def test_evasion_sample(tmp_path, scanner, name):
     assert report["verdict"] == verdict
     assert (coverage["unexplained_bytes"] > 0) == unexplained
     assert coverage["explained"] + coverage["unexplained_bytes"] == coverage["bytes"] == path.stat().st_size
-    if note == "HIDDEN_UNSCANNED":
-        assert "HIDDEN_UNSCANNED" in {r["code"] for r in report["incomplete_reasons"]}
+    if note in ("HIDDEN_UNSCANNED", "UNEXPLAINED_BYTES"):
+        assert note in {r["code"] for r in report["incomplete_reasons"]}
+
+
+def test_zip_inside_pe_section_is_fully_explained():
+    data = make_pe([(".rsrc", make_zip({"a.txt": b"a"}) + bytes(64), 0x40000040)])
+    assert zip_coverage(data, outer="pe")["unexplained_bytes"] == 0
+    assert zip_coverage(data + b"JUNK" * 16, outer="pe")["unexplained_bytes"] == 64
+
+
+def test_zip_inside_ole_container_is_explained():
+    data = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(504) + make_zip({"a.txt": b"a"}) + bytes(512)
+    coverage = zip_coverage(data, outer="ole")
+    assert coverage["unexplained_bytes"] == 0
+    assert coverage["container"] == "ole"
+    assert zip_coverage(data, outer="unknown")["unexplained_bytes"] == 1024
+    # định dạng khác chưa được xác nhận là container: byte ngoài ZIP vẫn là byte lạ (vd. "%PDF-" + ZIP + rác)
+    assert zip_coverage(data, outer="pdf")["unexplained_bytes"] == 1024
 
 
 def test_benign_zips_are_fully_explained(tmp_path, scanner):
