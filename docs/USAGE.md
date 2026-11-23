@@ -178,8 +178,8 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 - `files[].coverage` (chỉ file ZIP, thêm sau 0.17.1): độ phủ **cấu trúc** – `bytes`, `explained`, `unexplained_bytes`
   và tối đa 20 khoảng `[đầu, cuối)` trong `unexplained` không thuộc bản ghi ZIP hợp lệ nào (local header, dữ liệu,
   data descriptor, danh mục, ZIP64, EOCD + comment, phần PE của file SFX); `{"error": …}` nếu không đo được. Hiện chỉ
-  ghi nhận, **chưa** đổi kết luận. Phủ 100% không có nghĩa nội dung đã được kiểm tra hay file an toàn: nội dung
-  comment và extra field nằm trong vùng "đã giải thích" nhưng không được quét.
+  ghi nhận, **chưa** đổi kết luận. Phủ 100% không có nghĩa file an toàn. Comment và extra field (> 64 byte mỗi bản ghi)
+  được quét thô (mã băm, heuristic, YARA); file nén giấu trong đó không được mở.
 - Entry ZIP bị giấu khỏi danh mục (`ARCHIVE.HIDDEN_ENTRY`) được quét như một file con có đuôi `[ẩn]` khi giải mã được
   không mơ hồ; không được thì CHƯA QUÉT ĐỦ (`HIDDEN_UNSCANNED`).
 - Mỗi phát hiện trong `files[].findings`: `rule`, `severity`, `category`, `title`, `detail`, `engine`,

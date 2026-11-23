@@ -15,6 +15,8 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 - Xóa `Budget.remaining()` (không nơi nào gọi).
 
 ### Bảo mật
+- **Quét nội dung comment và extra field của ZIP** (trước đây ra SẠCH dù chứa payload): từng comment và từng bản ghi
+  extra field > 64 byte được tra mã băm, heuristic, YARA; phát hiện ghi rõ vị trí. Không giải nén nội dung trong đó.
 - **Lỗi khi kiểm tra cấu trúc ZIP không còn bị nuốt thành SẠCH:** trước đây một số lỗi ở bước tìm entry bị giấu/vùng
   dữ liệu chồng nhau bị bỏ qua im lặng (kết luận SẠCH), số khác làm crash cả lần quét; giờ đều là CHƯA QUÉT ĐỦ
   (`STRUCTURE_UNCHECKED`).

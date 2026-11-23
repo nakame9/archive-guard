@@ -14,6 +14,25 @@ def scanner():
     return Scanner(use_clamav=False)
 
 
+def test_zip_metadata_fields():
+    import io
+    import struct
+    import zipfile
+
+    from helpers import EICAR, make_zip
+
+    from archive_guard.extract import zip_metadata
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        zi = zipfile.ZipInfo("a.txt")
+        zi.comment = EICAR
+        zi.extra = struct.pack("<HH", 0x5455, 13) + b"x" * 13
+        z.writestr(zi, b"a")
+    assert zip_metadata(buf.getvalue()) == [("comment của a.txt", EICAR)]
+    assert zip_metadata(make_zip({"a.txt": b"a"})) == []
+
+
 @pytest.mark.parametrize("name", CORPUS)
 def test_evasion_sample(tmp_path, scanner, name):
     build, verdict, unexplained, note = CORPUS[name]

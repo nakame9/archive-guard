@@ -25,6 +25,7 @@ from .extract import (
     unsupported_container,
     zip_anomalies,
     zip_coverage,
+    zip_metadata,
 )
 from .rules import CRITICAL, HIGH, LOW, MEDIUM, Finding
 
@@ -333,12 +334,9 @@ class Scanner:
         res = FileResult(display, kind, size, digests["sha256"])
         report.files.append(res)
         res.findings += rules.check_name(name, in_archive=depth > 0)
-        known = next((h for h in digests.values() if h in self.hashes), None)
+        known = self._known_bad(digests)
         if known:
-            family = self.hashes[known]
-            res.findings.append(Finding(
-                "HASH.KNOWN_BAD", CRITICAL, malwarebazaar.CATEGORY_OF.get(family.lower(), "known_malware"),
-                "Trùng mã băm với mẫu mã độc đã biết" + (f": {family}" if family else ""), engine="hash"))
+            res.findings.append(known)
         if data is not None:
             for engine, run in (("heuristic", lambda: rules.check_content(data, kind, name)),
                                 ("YARA", lambda: engines.yara_scan(self.yara, data, timeout=max(
@@ -360,6 +358,15 @@ class Scanner:
                 report.skip("TOO_DEEP", display, "lồng quá sâu")
             else:
                 self._walk(*inner, name, display, depth, res, report, budget)
+
+    def _known_bad(self, digests):
+        known = next((h for h in digests.values() if h in self.hashes), None)
+        if known:
+            family = self.hashes[known]
+            return Finding(
+                "HASH.KNOWN_BAD", CRITICAL, malwarebazaar.CATEGORY_OF.get(family.lower(), "known_malware"),
+                "Trùng mã băm với mẫu mã độc đã biết" + (f": {family}" if family else ""), engine="hash")
+        return None
 
     @staticmethod
     def _not_checked(res, report, display, code, why):
@@ -419,6 +426,33 @@ class Scanner:
         if len(hidden) > MAX_HIDDEN:
             self._not_checked(res, report, display, "HIDDEN_UNSCANNED", f"hơn {MAX_HIDDEN} entry ẩn, phần còn lại chưa quét")
 
+    def _scan_metadata(self, src, display, res, report, budget):
+        """Quét comment/extra field như dữ liệu thô: mã băm, heuristic, YARA."""
+        try:
+            fields = zip_metadata(src)
+        except Exception as e:
+            self._not_checked(res, report, display, "STRUCTURE_UNCHECKED",
+                              f"không đọc được comment/extra field: {type(e).__name__}")
+            return
+        for where, data in fields:
+            budget.take(len(data))
+            found = []
+            known = self._known_bad(_digests(data))
+            if known:
+                found.append(known)
+            kind = rules.file_kind(data, "")
+            for engine, run in (("heuristic", lambda: rules.check_content(data, kind, "")),
+                                ("YARA", lambda: engines.yara_scan(self.yara, data, timeout=max(
+                                    1, min(60, int(budget.deadline - time.monotonic())))))):
+                try:
+                    found += run()
+                except Exception as e:
+                    self._not_checked(res, report, display, "ENGINE_ERROR",
+                                      f"{where}: {engine} lỗi: {type(e).__name__}: {e}")
+            for finding in found:
+                finding.detail = f"{where}: {finding.detail}"
+                res.findings.append(finding)
+
     @staticmethod
     def _coverage(src) -> dict:
         """Độ phủ cấu trúc ZIP – CHỈ ghi nhận (0.19), chưa đổi kết luận; lỗi khi đo cũng chỉ ghi lại."""
@@ -464,6 +498,7 @@ class Scanner:
                     res.findings += found[0]
                     self._scan_hidden(src, found[1], display, depth, res, report, budget)
                 res.coverage = self._coverage(src)
+                self._scan_metadata(src, display, res, report, budget)
         except BudgetExceeded as e:  # ném ra NGAY trong lúc giải nén, giữa chừng một file con
             self._stop(budget, e, res, report, display)
         except EncryptedArchive as e:
