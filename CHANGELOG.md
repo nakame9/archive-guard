@@ -8,8 +8,8 @@ Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tu�
 ## [Chưa phát hành]
 
 ## [0.19.0] – 2026-11-24
-Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồm M1, M3, nền 0.18 (giai đoạn A), M2 (M2a + M2b)
-và bước 1 của M4.
+Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồm M1, M3, nền 0.18 (giai đoạn A), M2 (M2a + M2b,
+quét comment/extra field) và bước 1 của M4.
 
 ### Thay đổi
 - Workflow `update-hashes` lấy bản đã ký gần nhất từ Release `hash-db` (xác minh chữ ký Sigstore) làm gốc trước khi
