@@ -1,9 +1,8 @@
 """Evasion corpus: các mẫu ZIP cố tình làm khó trình quét, dựng từng byte lúc chạy test (repo không chứa file nhị phân).
 
 Mỗi mẫu: (hàm dựng, kết luận mong đợi, có vùng byte chưa giải thích được không, ghi chú).
-Kết luận mong đợi là kết luận HIỆN TẠI của `archiveguard file.zip`. Mẫu ghi chú "M2b" ra SẠCH vì độ phủ cấu trúc mới
-chỉ được ghi nhận (0.19); khi M2b bật quy tắc "còn byte chưa giải thích → ≥ CHƯA QUÉT ĐỦ" thì đổi kết luận mong đợi
-của chúng thành "incomplete". Mẫu ghi chú "chưa phủ" là lỗ hổng đã biết mà độ phủ cấu trúc KHÔNG bắt được.
+Từ M2b, mẫu ghi chú "UNEXPLAINED_BYTES" ra CHƯA QUÉT ĐỦ vì còn byte chưa giải thích.
+Mẫu ghi chú "chưa phủ" là lỗ hổng đã biết mà độ phủ cấu trúc KHÔNG bắt được.
 """
 import io
 import struct
@@ -84,8 +83,10 @@ CORPUS = {
     "junk_prefix": (lambda: b"\x00JUNK" * 20 + make_zip({"e.com": EICAR}), "malicious", True, ""),
     "pe_sfx": (lambda: make_pe([(".text", b"\x90" * 512, 0x60000020)]) + make_zip({"e.com": EICAR}),
                "malicious", False, ""),
-    "trailing_junk": (lambda: make_zip({"a.txt": b"a"}) + b"\x00" * 64, "clean", True, "M2b"),
-    "gap_between_entries": (_gap_between_entries, "clean", True, "M2b"),
+    "trailing_junk": (lambda: make_zip({"a.txt": b"a"}) + b"\x00" * 64, "incomplete", True, "UNEXPLAINED_BYTES"),
+    "gap_between_entries": (_gap_between_entries, "incomplete", True, "UNEXPLAINED_BYTES"),
+    "pdf_prefix_trailing_junk": (lambda: b"%PDF-1.7\n" + make_zip({"a.txt": b"a"}) + b"\x00" * 64,
+                                 "incomplete", True, "UNEXPLAINED_BYTES"),
     "duplicate_names": (_duplicate_names, "malicious", False, ""),
     "nested_3_levels": (lambda: _nested(3, EICAR), "malicious", False, ""),
     "nested_too_deep": (lambda: _nested(7, b"vo hai"), "suspicious", False, ""),
