@@ -3,9 +3,15 @@
 Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản theo `MAJOR.MINOR.PATCH`;
 trước 1.0, MINOR tăng khi có tính năng mới hoặc thay đổi hành vi.
 
-Danh sách mã băm MalwareBazaar được cập nhật tự động hằng tuần và không được ghi ở đây.
+Danh sách mã băm MalwareBazaar được cập nhật tự động mỗi ngày trên Release `hash-db` (lấy bằng `--update-db`) và
+không được ghi ở đây.
 
 ## [Chưa phát hành]
+
+### Thay đổi
+- Workflow `update-hashes` thôi commit mã băm vào `main` (M4 bước 2): chạy một lần mỗi ngày, gốc là bản đã ký trên
+  Release `hash-db`; `archive_guard/data/malwarebazaar.txt` giờ là bản chụp đi kèm gói, không còn tự cập nhật bằng
+  `git pull` → dùng `archiveguard --update-db`.
 
 ## [0.19.0] – 2026-11-24
 Bản phát hành đầu tiên sau 0.17.1 (0.18 không phát hành riêng): gồm M1, M3, nền 0.18 (giai đoạn A), M2 (M2a + M2b,

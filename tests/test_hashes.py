@@ -90,6 +90,40 @@ def test_update_seeds_from_release_without_losing_history(tmp_path):
     }
 
 
+def test_two_runs_from_release_only_keep_history(tmp_path):
+    """Workflow M4: mỗi lượt ghi file mới, gốc duy nhất là Release lượt trước; lượt có truy vấn lỗi không mất mã."""
+    import datetime
+
+    from archive_guard import malwarebazaar
+
+    a, b = "a" * 64, "b" * 64
+    release = tmp_path / "release0.txt"
+    release.write_text(f"{a} Vidar 2026-10-01\n", encoding="utf-8")
+
+    def run(n, query):
+        out = tmp_path / f"release{n}.txt"
+        malwarebazaar.update("k", out, log=lambda *_: None, query=query,
+                             today=datetime.date(2026, 11, n), seed=[tmp_path / f"release{n - 1}.txt"])
+
+    run(1, lambda key, form: [{"sha256_hash": b, "signature": "AsyncRAT", "first_seen": "2026-11-01"}]
+        if form.get("signature") == "AsyncRAT" else [])
+
+    def partly_broken(key, form):
+        if form.get("query") == "recent_detections":
+            raise RuntimeError("API lỗi")
+        return []
+
+    run(2, partly_broken)
+    assert set(malwarebazaar._read(tmp_path / "release2.txt")) == {a, b}
+
+    def broken(key, form):
+        raise RuntimeError("API lỗi")
+
+    with pytest.raises(RuntimeError):  # mọi truy vấn lỗi: dừng, không ghi file nào để đăng
+        run(3, broken)
+    assert not (tmp_path / "release3.txt").exists()
+
+
 def test_update_hashes_needs_working_key(tmp_path, monkeypatch):
     from archive_guard import malwarebazaar
 

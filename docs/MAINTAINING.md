@@ -31,7 +31,7 @@ Mọi việc chỉ người có quyền ghi vào repo mới làm: phát hành, c
 |---|---|
 | Mỗi tuần | Duyệt PR của Dependabot (pip, GitHub Actions, digest Docker); CI chạy pip-audit trên từng PR |
 | Khi CI đỏ ở job `audit` lúc không ai sửa code | Có CVE mới trong dependency: cập nhật bản vá (xem bên dưới) |
-| Mỗi ngày (tự động) | `update-hashes`: ký + đăng Release `hash-db`; thứ Hai commit vào `main`. Xem lại nếu workflow đỏ (Auth-Key hết hạn, API đổi) |
+| Mỗi ngày (tự động) | `update-hashes`: ký + đăng Release `hash-db`. Xem lại nếu workflow đỏ (Auth-Key hết hạn, API đổi) |
 | Khi có bản unrar mới / CVE của unrar | Cập nhật 4 dòng `UNRAR_*` trong `Dockerfile` (hướng dẫn ngay trong file) |
 | Vài tháng một lần | Cập nhật luật signature-base (`archive_guard/data/rules/signature-base/README.md`, nhớ sửa `VERSION`), đo lại báo nhầm |
 | Khi bộ kiểm tra 3 đã bị nhìn quá nhiều | Dựng bộ kiểm tra mới, đo bằng luật cũ trước ([BENCHMARK.md](BENCHMARK.md)) |
