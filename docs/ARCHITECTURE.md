@@ -17,7 +17,7 @@ archive-guard/
 │   ├── engines.py          # YARA và ClamAV (tùy chọn)
 │   ├── malwarebazaar.py    # tải mã băm theo họ từ MalwareBazaar
 │   ├── benchmark.py        # đo precision/recall/tỷ lệ báo nhầm trên dữ liệu có nhãn
-│   └── data/               # known_bad.txt, malwarebazaar.txt (cập nhật hằng tuần), rules/*.yar
+│   └── data/               # known_bad.txt, malwarebazaar.txt (bản chụp; bản mới: --update-db), rules/*.yar
 ├── examples/               # upload_gate.py: backend mẫu theo integration contract
 ├── tests/                  # mỗi file test một mảng (xem bảng cuối trang); helpers.py tạo mẫu thử
 ├── docs/                   # USAGE, INTEGRATION, TROUBLESHOOTING, RULES, BENCHMARK, ARCHITECTURE, THREAT_MODEL, SECURITY-MODEL, MAINTAINING, ROADMAP

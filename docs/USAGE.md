@@ -163,7 +163,8 @@ ArchiveGuard là công cụ dòng lệnh chạy theo lô, không phải dịch v
 - `schema_version` (hiện là `1`): chỉ tăng khi một trường bị đổi tên, xóa hoặc đổi nghĩa. Thêm trường mới thì giữ
   nguyên, nên công cụ đọc báo cáo cứ bỏ qua trường lạ là tương thích. Test `tests/test_cli.py` khóa các trường của bản 1.
 - `rules_version`: mã 12 ký tự **tự sinh từ nội dung bộ luật**. Cùng bộ luật thì cùng mã trên mọi máy;
-  `rules_components` cho biết phần nào đã đổi. Danh sách mã băm cập nhật hằng tuần nên mã này cũng đổi hằng tuần.
+  `rules_components` cho biết phần nào đã đổi. Mã này đổi mỗi khi danh sách mã băm đang dùng thay đổi (sau mỗi lần
+  `--update-db`).
 - `complete` / `incomplete`: có phần nào chưa kiểm tra được không, và cụ thể là phần nào (chuỗi để đọc).
 - `disposition` (thêm sau 0.17.1): hành động gợi ý theo `--fail-on` – `allow` (kết luận không nằm trong
   `--fail-on`), `review` (CHƯA QUÉT ĐỦ), `quarantine` (ĐÁNG NGỜ), `reject` (NGUY HIỂM). `allow` nghĩa là được chấp
@@ -248,8 +249,9 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g --cap-drop AL
 
 Image chạy bằng user thường (uid 10001), thư mục cần quét được gắn **chỉ đọc** vào `/scan`. Image có `unrar`
 (đọc nội dung RAR, pin theo phiên bản + SHA-256), không có ClamAV và 7-Zip. Base image pin theo digest, thư viện
-Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản mọi thành phần (xem [SECURITY-MODEL.md](SECURITY-MODEL.md#chuỗi-cung-ứng)). `--update-hashes` cần mạng, nên hãy build lại image để có danh
-sách mã băm mới.
+Python theo hash: build hôm nay hay tháng sau đều ra cùng phiên bản mọi thành phần (xem [SECURITY-MODEL.md](SECURITY-MODEL.md#chuỗi-cung-ứng)).
+Image chỉ có bản chụp mã băm đi kèm gói; build lại image không có danh sách mới, hãy chạy `--update-db` (cần mạng)
+với thư mục cache gắn vào container.
 
 ## Mã băm mã độc từ MalwareBazaar
 
@@ -274,8 +276,8 @@ Workflow `update-hashes` chạy **mỗi ngày**: tải mã băm mới, **ký b�
 ghi vào cache khi chữ ký do đúng workflow `update-hashes.yml` trên nhánh `main` của repo này tạo ra; chữ ký sai thì
 cache cũ giữ nguyên và lệnh trả mã 3. Chạy định kỳ bằng cron/systemd timer.
 
-Repo kèm sẵn `archive_guard/data/malwarebazaar.txt` (khoảng 20.000 mã), được workflow `update-hashes` tự tải từ
-[MalwareBazaar](https://bazaar.abuse.ch/) và commit **mỗi thứ Hai**. Chỉ cần `git pull` là có danh sách mới.
+Repo kèm sẵn bản chụp `archive_guard/data/malwarebazaar.txt` (khoảng 20.000 mã) đi kèm gói, không tự cập nhật;
+danh sách mới nằm trên Release `hash-db`, lấy bằng `--update-db`.
 Nếu bạn fork repo, thêm secret `ABUSECH_AUTH_KEY` (Settings → Secrets and variables → Actions).
 
 Muốn cập nhật ngay trên máy (lưu vào cache riêng, gộp chung khi quét):

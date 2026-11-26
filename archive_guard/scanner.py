@@ -243,7 +243,7 @@ class Scanner:
         cache = malwarebazaar.cache_path()
         hash_status = (f"cache MalwareBazaar {time.strftime('%Y-%m-%d', time.localtime(cache.stat().st_mtime))}"
                        if cache.exists() else "chạy --update-hashes để tải thêm từ MalwareBazaar")
-        # data/*.txt: known_bad.txt (EICAR) + malwarebazaar.txt do GitHub Actions cập nhật hằng tuần
+        # data/*.txt: known_bad.txt (EICAR) + malwarebazaar.txt (bản chụp đi kèm gói; bản mới: --update-db)
         self.hashes = rules.load_hashes([*sorted(DATA_DIR.glob("*.txt")), *([cache] if cache.exists() else []),
                                          *hash_files])
         self.yara, yara_status, yara_files, self.yara_broken = (

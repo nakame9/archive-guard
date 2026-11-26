@@ -1,14 +1,13 @@
 name: update-hashes
 
-# Tải mã băm mã độc mới từ MalwareBazaar.
-# - Hằng ngày: ký file bằng Sigstore và đăng lên GitHub Release "hash-db" → admin cập nhật tại chỗ bằng
-#   `archiveguard --update-db` (xác minh chữ ký, không cần Auth-Key).
-# - Thứ Hai (và khi chạy tay): thêm commit vào main qua GitHub API, nên commit được GitHub ký ("Verified").
+# Tải mã băm mã độc mới từ MalwareBazaar hằng ngày, ký file bằng Sigstore và đăng lên GitHub Release "hash-db" →
+# admin cập nhật tại chỗ bằng `archiveguard --update-db` (xác minh chữ ký, không cần Auth-Key).
+# Không commit vào main: gốc của mỗi lượt là bản đã ký gần nhất trên Release, archive_guard/data/malwarebazaar.txt
+# chỉ là bản chụp đi kèm gói.
 # Cần secret ABUSECH_AUTH_KEY: Settings → Secrets and variables → Actions → New repository secret.
 on:
   schedule:
-    - cron: "17 1 * * 1"        # thứ Hai 08:17 giờ Việt Nam: cập nhật + phát hành + commit
-    - cron: "17 1 * * 0,2-6"    # các ngày khác: cập nhật + phát hành (recent_detections phủ 7 ngày gần nhất)
+    - cron: "17 1 * * *"  # 08:17 giờ Việt Nam (recent_detections phủ 7 ngày gần nhất)
   workflow_dispatch:
 
 permissions: {}
@@ -22,7 +21,7 @@ jobs:
     if: github.ref == 'refs/heads/main'  # danh tính chữ ký mà --update-db chấp nhận gắn với nhánh main
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Release hash-db + commit
+      contents: write  # Release hash-db
       id-token: write  # chữ ký Sigstore keyless
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,8 +36,9 @@ jobs:
       - name: Tải mã băm (gộp vào danh sách cũ, bỏ mã cũ hơn 12 tháng)
         env:
           ABUSECH_AUTH_KEY: ${{ secrets.ABUSECH_AUTH_KEY }}
-        run: python -c "import os; from archive_guard import malwarebazaar as mb; mb.update(os.environ['ABUSECH_AUTH_KEY'], 'archive_guard/data/malwarebazaar.txt', seed=['seed/malwarebazaar.txt'])"
-      - run: mkdir dist && cp archive_guard/data/malwarebazaar.txt dist/
+        run: |
+          mkdir dist
+          python -c "import os; from archive_guard import malwarebazaar as mb; mb.update(os.environ['ABUSECH_AUTH_KEY'], 'dist/malwarebazaar.txt', seed=['seed/malwarebazaar.txt'])"
       - name: Ký bằng Sigstore
         uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
         with:
@@ -57,21 +57,3 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
       - name: Tự kiểm tra như admin (tải về + xác minh chữ ký)
         run: archiveguard --update-db
-      - name: Commit có chữ ký (thứ Hai hoặc chạy tay)
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 1 * * 1'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          file=archive_guard/data/malwarebazaar.txt
-          git diff --quiet -- "$file" && { echo "không có thay đổi"; exit 0; }
-          # Commit tạo qua API bằng token của GitHub Actions được GitHub ký; git push từ runner thì không.
-          repo="repos/$GITHUB_REPOSITORY/git"
-          base=$(git rev-parse HEAD)
-          base_tree=$(gh api "$repo/commits/$base" --jq .tree.sha)
-          base64 -w0 "$file" | jq -Rs '{content: ., encoding: "base64"}' > /tmp/blob.json
-          blob=$(gh api "$repo/blobs" --input /tmp/blob.json --jq .sha)
-          tree=$(jq -n --arg b "$base_tree" --arg s "$blob" --arg p "$file" \
-            '{base_tree: $b, tree: [{path: $p, mode: "100644", type: "blob", sha: $s}]}' | gh api "$repo/trees" --input - --jq .sha)
-          commit=$(jq -n --arg t "$tree" --arg p "$base" '{message: "Cập nhật mã băm MalwareBazaar", tree: $t, parents: [$p]}' \
-            | gh api "$repo/commits" --input - --jq .sha)
-          gh api -X PATCH "$repo/refs/heads/main" -f sha="$commit"  # không force: main đã đổi thì dừng, không ghi đè
